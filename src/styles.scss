@@ -1,0 +1,124 @@
+// ---- Bootstrap theme ----
+$primary: #0b5e3b;
+$secondary: #5b6b7f;
+$info: #1e5ba8;
+$warning: #d98a06;
+$font-family-sans-serif: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+$body-color: #0f1c2e;
+$headings-font-weight: 650;
+$border-radius: .5rem;
+$border-radius-sm: .375rem;
+$border-radius-lg: .75rem;
+$link-decoration: none;
+$card-border-color: #e5e9f0;
+$table-cell-padding-y: .75rem;
+$table-cell-padding-x: 1rem;
+$btn-font-weight: 500;
+
+@import 'bootstrap/scss/bootstrap';
+
+// ---- Brand ----
+:root { --brand-dark: #073f28; --brand-darker: #052a1b; }
+.brand-mark {
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: linear-gradient(140deg, $primary, var(--brand-dark)); color: #fff; font-size: 1.15rem;
+  &.lg { width: 56px; height: 56px; font-size: 1.6rem; border-radius: 14px; }
+}
+.brand-sub { font-size: .72rem; }
+
+// ---- Public site ----
+.hero {
+  background:
+    radial-gradient(circle at 85% 20%, rgba($primary, .10), transparent 45%),
+    radial-gradient(circle at 10% 90%, rgba($info, .07), transparent 40%), #f7faf8;
+}
+.feature-icon {
+  width: 48px; height: 48px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba($primary, .09); color: $primary; font-size: 1.35rem;
+}
+.step-num {
+  width: 40px; height: 40px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  background: $primary; color: #fff; font-weight: 600;
+}
+.band-dark { background: linear-gradient(120deg, var(--brand-darker), var(--brand-dark) 60%, $primary); color: #fff; }
+.site-footer { background: #0b1a13; color: rgba(255, 255, 255, .7); a { color: rgba(255, 255, 255, .7); &:hover { color: #fff; } } }
+.footer-logo { background: #fff; border-radius: 8px; padding: 6px 10px; display: inline-flex; img { height: 22px; } }
+.tier-card.featured { border: 2px solid $primary; }
+.tier-option { cursor: pointer; .form-check-input { margin-top: .2rem; } &:has(input:checked) { border-color: $primary !important; background: rgba($primary, .05); } }
+.min-vh-75 { min-height: 75vh; }
+
+// ---- App shell ----
+$sidebar-w: 260px;
+.app-sidebar {
+  background: var(--brand-darker); color: rgba(255, 255, 255, .75);
+  @include media-breakpoint-up(lg) { position: fixed; top: 0; bottom: 0; left: 0; width: $sidebar-w; }
+  .offcanvas-body { display: flex; flex-direction: column; }
+  .nav-section { font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: rgba(255, 255, 255, .4); font-weight: 600; margin: 1.1rem .75rem .4rem; }
+  .nav-link {
+    color: rgba(255, 255, 255, .78); border-radius: .5rem; padding: .55rem .75rem; display: flex; align-items: center; gap: .7rem; font-size: .9rem;
+    &:hover { background: rgba(255, 255, 255, .07); color: #fff; }
+    &.active { background: $primary; color: #fff; font-weight: 500; }
+    .badge { margin-left: auto; }
+  }
+}
+.app-main { min-height: 100vh; background: #f5f7fa; @include media-breakpoint-up(lg) { margin-left: $sidebar-w; } }
+.app-topbar { background: #fff; border-bottom: 1px solid $card-border-color; position: sticky; top: 0; z-index: 1020; }
+.app-search { max-width: 380px; position: relative; .dropdown-menu { width: 100%; } }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 600; font-size: .8rem; color: #fff; flex-shrink: 0;
+  &.lg { width: 64px; height: 64px; font-size: 1.3rem; }
+}
+
+// ---- Components ----
+.card { box-shadow: 0 1px 2px rgba(16, 30, 54, .04); }
+.stat-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem; flex-shrink: 0; }
+.table > thead th { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: $secondary; font-weight: 600; background: #fafbfc; }
+.table tr.clickable { cursor: pointer; }
+.tier { font-weight: 600; }
+.tier-Gold { background: #fbf1dc; color: #8a5a12; }
+.tier-Silver { background: #eef1f5; color: #4a5568; }
+.tier-Bronze { background: #fbe9dc; color: #9a4a12; }
+.icon-circle { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+
+.stepper {
+  display: flex; list-style: none; padding: 0; margin: 0; counter-reset: s;
+  li { flex: 1; position: relative; text-align: center; font-size: .78rem; color: $secondary; font-weight: 500; }
+  li::before { content: ''; position: absolute; top: 15px; left: -50%; right: 50%; height: 2px; background: $gray-300; }
+  li:first-child::before { display: none; }
+  .dot {
+    position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; margin: 0 auto 6px;
+    display: flex; align-items: center; justify-content: center; background: #fff; border: 2px solid $gray-300; font-weight: 600;
+  }
+  li.done .dot { background: $success; border-color: $success; color: #fff; }
+  li.done::before, li.active::before { background: $success; }
+  li.active .dot { background: $primary; border-color: $primary; color: #fff; box-shadow: 0 0 0 4px rgba($primary, .15); }
+  li.active { color: $primary; }
+  @include media-breakpoint-down(sm) { .label { display: none; } }
+}
+
+// ---- Certificate ----
+.certificate {
+  border: 1px solid #d6c79c; outline: 6px double rgba($primary, .35); outline-offset: -14px; border-radius: 6px;
+  padding: 2.4rem 2.6rem; background: linear-gradient(160deg, #fff, #f6fbf8); position: relative; max-width: 720px; margin: 0 auto;
+  .eyebrow { font-size: .7rem; letter-spacing: .2em; color: #8a5a12; font-weight: 700; }
+  .name { font-size: 1.7rem; font-weight: 700; color: var(--brand-dark); }
+  .qr { width: 104px; height: 104px; border: 1px solid $gray-300; border-radius: 6px; padding: 4px; background: #fff; }
+  .seal {
+    width: 92px; height: 92px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-align: center;
+    background: radial-gradient(circle at 40% 35%, #fbe9bf, #b7791f); color: #5c3a05; font-size: .62rem; font-weight: 800; line-height: 1.25;
+    border: 3px solid #fff; box-shadow: 0 4px 12px rgba(0, 0, 0, .18);
+  }
+}
+@media print { .certificate { box-shadow: none; } * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+// Bootstrap's .offcanvas-lg makes itself transparent and hides its header on desktop; keep the sidebar styled.
+.app-sidebar.offcanvas-lg {
+  background-color: var(--brand-darker) !important;
+  @include media-breakpoint-up(lg) { display: flex; flex-direction: column; }
+  .offcanvas-body { flex-grow: 1 !important; overflow-y: auto !important; padding: 0 1rem 1.5rem !important; }
+  .offcanvas-header { padding: 1rem 1.25rem; }
+}
+.sidebar-brand { padding: 1.1rem .5rem 1rem; border-bottom: 1px solid rgba(255, 255, 255, .08); margin-bottom: .25rem; }
+.navbar .nav-link, .navbar .btn { white-space: nowrap; }
