@@ -43,7 +43,7 @@ $btn-font-weight: 500;
 }
 .band-dark { background: linear-gradient(120deg, var(--brand-darker), var(--brand-dark) 60%, $primary); color: #fff; }
 .site-footer { background: #0b1a13; color: rgba(255, 255, 255, .7); a { color: rgba(255, 255, 255, .7); &:hover { color: #fff; } } }
-.footer-logo { background: #fff; border-radius: 8px; padding: 6px 10px; display: inline-flex; img { height: 22px; } }
+.footer-logo { padding: 2px; display: inline-flex; img { height: 28px; } }
 .tier-card.featured { border: 2px solid $primary; }
 .tier-option { cursor: pointer; .form-check-input { margin-top: .2rem; } &:has(input:checked) { border-color: $primary !important; background: rgba($primary, .05); } }
 .min-vh-75 { min-height: 75vh; }

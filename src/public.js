@@ -55,8 +55,7 @@ export function publicLayout(inner, active) {
       <hr class="border-secondary my-4">
       <div class="d-flex flex-wrap align-items-center gap-3 small">
         <span>© ${new Date().getFullYear()} Money Lenders Association of Zambia</span>
-        <span class="ms-lg-auto d-flex align-items-center gap-2">Platform by <span class="footer-logo"><img src="/izyane-logo.svg" alt="iZyane"></span></span>
-        <a href="javascript:void 0" onclick="resetDemo()" class="opacity-50">Reset demo data</a>
+        <span class="ms-lg-auto d-flex align-items-center gap-2">Platform by <a href="https://izyane.com" target="_blank" class="text-decoration-underline"><span class="footer-logo"><img src="/izyane-white.png" alt="iZyane"></span></a></span>
       </div>
     </div>
   </footer>`;
@@ -429,7 +428,7 @@ function login(role) {
       </form>
       ${member ? '<p class="text-center small mt-4 mb-0 text-body-secondary">Not a member yet? <a href="#/apply">Apply for membership</a></p>' : ''}
     </div></div>
-    <div class="alert alert-light border small mt-3 mb-0"><div class="fw-semibold mb-1">${icon('info-circle', 'me-1')}Demo accounts (any password)</div>Member: <code>info@quicklend.zm</code> or the email of any member, including newly accredited ones<br>Secretariat: any <code>@mlaz.org.zm</code> address</div>
+    
   </div></div></div></section>`;
 }
 function doLogin(role, form) {
