@@ -1,7 +1,7 @@
 import {
-  S, commit, nextId, esc, K, fmtDate, nowLabel, TIERDUES, JOINING_FEE, totals, inGoodStanding, findMember, memberById, appById,
+  S, commit, nextId, esc, K, fmtDate, nowLabel, plusYear, TIERDUES, JOINING_FEE, totals, inGoodStanding, findMember, memberById, appById,
   icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast, payFlow, payMethodSelect, addPayment,
-  setSession, nav, after, expose, empty,
+  setSession, nav, after, expose, empty, saveDoc,
 } from './ui.js';
 
 /* ================= LAYOUT ================= */
@@ -285,7 +285,7 @@ function renderWizard() {
     <div class="row g-3">${f('contact', 'Full name')}${f('position', 'Position', { ph: 'e.g. Managing Director' })}${f('phone', 'Phone number', { type: 'tel', ph: '097 000 0000' })}${f('email', 'Email address', { type: 'email', err: 'Enter a valid email address.' })}</div>`;
   if (W.step === 2) body = `<h2 class="h5 mb-1">Ministry of Finance authorization</h2><p class="small text-body-secondary mb-4">Your money-lending authorization is verified before accreditation is issued.</p>
     <div class="alert alert-info small d-flex gap-2">${icon('info-circle')}<div>Don’t have it to hand? You can skip this step and upload it later from <b>Track application</b>, using the reference you receive.</div></div>
-    <div class="row g-3">${f('mofRef', 'Authorization reference', { req: false, ph: 'MoF/ML/2026/0000' })}${f('mofExpiry', 'Expiry date', { req: false, type: 'date' })}
+    <div class="row g-3">${f('mofRef', 'Authorization reference', { req: false, ph: 'MoF/ML/2026/0000', col: 'col-12' })}
       <div class="col-12"><label class="form-label small fw-medium">Authorization document <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="mofFile" accept=".pdf,.jpg,.jpeg,.png">${d.mofFile ? `<div class="form-text">${icon('paperclip')} ${esc(d.mofFile)} attached</div>` : ''}</div></div>`;
   if (W.step === 3) {
     const row = (k, v) => `<div class="d-flex justify-content-between py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
@@ -310,6 +310,8 @@ function renderWizard() {
 function wizCapture() {
   const v = readForm(document.getElementById('wform'));
   if (!v) return false;
+  const file = document.querySelector('#wform [name=mofFile]')?.files[0];
+  if (file) W.mofBlob = file;
   if (!v.mofFile) delete v.mofFile;
   Object.assign(W.data, v); return true;
 }
@@ -321,9 +323,10 @@ function wizSubmit() {
   const app = {
     id: nextId('app', 'APP-'), name: d.name, town: d.town, province: d.province, address: d.address, contact: d.contact, position: d.position,
     phone: d.phone, email: d.email, pacra: d.pacra, tpin: d.tpin, tier: d.tier, stage: hasMof ? 'mof_review' : 'details', submitted: nowLabel(),
-    mofRef: hasMof ? (d.mofRef || 'Uploaded document') : '—', mofFile: d.mofFile || '', mofExpiry: d.mofExpiry || '',
+    mofRef: hasMof ? (d.mofRef || 'Uploaded document') : '—', mofFile: d.mofFile || '', mofExpiry: hasMof ? plusYear() : '',
   };
   S.apps.unshift(app); commit();
+  if (W.mofBlob) saveDoc(app.id, W.mofBlob);
   document.getElementById('wizard').innerHTML = `<div class="text-center py-4">
     <span class="icon-circle bg-success-subtle text-success-emphasis mb-3" style="width:72px;height:72px;font-size:2rem">${icon('check-lg')}</span>
     <h2 class="h4">Application submitted</h2>
@@ -353,8 +356,7 @@ function track(ref) {
     if (a.stage === 'details') action = `${a.note ? `<div class="alert alert-danger small d-flex gap-2">${icon('arrow-return-left')}<div><b>Returned by the Secretariat:</b> ${esc(a.note)}</div></div>` : ''}
       <h3 class="h6 fw-semibold">Upload your Ministry of Finance authorization</h3>
       <form id="mofform" class="row g-3" novalidate onsubmit="event.preventDefault();trackUpload('${a.id}')">
-        <div class="col-md-6"><label class="form-label small fw-medium">Authorization reference</label><input class="form-control" name="mofRef" required placeholder="MoF/ML/2026/0000"><div class="invalid-feedback">Required.</div></div>
-        <div class="col-md-6"><label class="form-label small fw-medium">Expiry date</label><input class="form-control" type="date" name="mofExpiry" required><div class="invalid-feedback">Required.</div></div>
+        <div class="col-12"><label class="form-label small fw-medium">Authorization reference</label><input class="form-control" name="mofRef" required placeholder="MoF/ML/2026/0000"><div class="invalid-feedback">Required.</div></div>
         <div class="col-12"><label class="form-label small fw-medium">Document</label><input class="form-control" type="file" name="mofFile" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach the authorization document.</div></div>
         <div class="col-12"><button class="btn btn-primary">Submit for verification</button></div>
       </form>`;
@@ -387,8 +389,9 @@ function track(ref) {
     </form>${result}</div></section>`;
 }
 function trackUpload(id) {
-  const v = readForm(document.getElementById('mofform')); if (!v) return;
-  Object.assign(appById(id), { stage: 'mof_review', note: '', mofRef: v.mofRef, mofExpiry: v.mofExpiry, mofFile: v.mofFile });
+  const form = document.getElementById('mofform'), v = readForm(form); if (!v) return;
+  saveDoc(id, form.querySelector('[name=mofFile]').files[0]);
+  Object.assign(appById(id), { stage: 'mof_review', note: '', mofRef: v.mofRef, mofExpiry: plusYear(), mofFile: v.mofFile });
   commit(); toast('Authorization submitted for verification'); nav('track/' + id);
 }
 function trackPay(id) {

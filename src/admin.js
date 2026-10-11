@@ -1,7 +1,7 @@
 import {
   S, commit, nextId, esc, K, KM, fmtDate, today, plusYear, TIERDUES, JOINING_FEE, totals, counts, memberById, appById, inGoodStanding,
   certNo, log, addPayment, icon, avatar, statusBadge, tierBadge, accredBadge, mofBadge, duesBadge, stageBadge, payBadge, pageHeader,
-  statCard, stepper, empty, listItem, toast, modal, confirmModal, readForm, viewCert, nav, rerender, expose,
+  statCard, stepper, empty, listItem, toast, modal, confirmModal, readForm, viewCert, nav, rerender, expose, getDoc, deleteDoc,
 } from './ui.js';
 
 const crumb = (href, label, current) => `<li class="breadcrumb-item"><a href="#/app/${href}">${label}</a></li><li class="breadcrumb-item active">${esc(current)}</li>`;
@@ -144,7 +144,7 @@ function recordDues(id) {
   confirmModal({
     title: 'Record dues payment', confirmText: 'Record payment',
     body: `<p class="small text-body-secondary">Record an offline payment of ${K(TIERDUES[m.tier])} for ${esc(m.name)}.</p>
-      <div class="row g-3"><div class="col-6"><label class="form-label small fw-medium">Method</label><select class="form-select" name="method"><option>Bank transfer</option><option>Cash</option><option>Cheque</option></select></div>
+      <div class="row g-3"><div class="col-6"><label class="form-label small fw-medium">Method</label><select class="form-select" name="method"><option>Bank transfer</option><option>Cash</option></select></div>
       <div class="col-6"><label class="form-label small fw-medium">Bank reference</label><input class="form-control" name="ref" required placeholder="e.g. ZNBC-889120"></div></div>`,
     onConfirm: el => {
       const v = readForm(el); if (!v) return false;
@@ -180,7 +180,7 @@ function appDetail(id) {
   if (a.note && a.stage === 'details') action += `<div class="alert alert-danger small">${icon('arrow-return-left', 'me-1')} Returned to applicant: ${esc(a.note)}</div>`;
   if (a.stage === 'details') action += `<div class="alert alert-warning small d-flex gap-2">${icon('hourglass')}<div>The applicant has not yet uploaded their MoF authorization. They can do so from <b>Track application</b> using reference <b>${a.id}</b>.</div></div>
     <button class="btn btn-outline-secondary" onclick="toast('Reminder sent to ${esc(a.email || a.phone)}')">${icon('envelope', 'me-1')} Send reminder</button>`;
-  else action += listItem('file-earmark-pdf', 'info', 'MoF money-lending authorization', `Ref ${esc(a.mofRef)}${a.mofExpiry ? ` · expires ${fmtDate(a.mofExpiry)}` : ''}${a.mofFile ? ` · ${esc(a.mofFile)}` : ''}`, a.stage === 'mof_review' ? '<span class="badge bg-warning-subtle text-warning-emphasis">Pending review</span>' : '<span class="badge bg-success-subtle text-success-emphasis">Verified</span>').replace('list-group-item', 'border rounded px-3 mb-3');
+  else action += listItem('file-earmark-pdf', 'info', 'MoF money-lending authorization', `Ref ${esc(a.mofRef)}${a.mofExpiry ? ` · expires ${fmtDate(a.mofExpiry)}` : ''}${a.mofFile ? ` · ${esc(a.mofFile)}` : ''}`, `<div class="d-flex flex-wrap align-items-center justify-content-end gap-2">${a.stage === 'mof_review' ? '<span class="badge bg-warning-subtle text-warning-emphasis">Pending review</span>' : '<span class="badge bg-success-subtle text-success-emphasis">Verified</span>'}<button class="btn btn-sm btn-outline-primary" onclick="viewMof('${a.id}')">${icon('eye', 'me-1')} View document</button></div>`).replace('list-group-item', 'border rounded px-3 mb-3');
   if (a.stage === 'mof_review') action += `<div class="alert alert-info small d-flex gap-2">${icon('search')}<div>Check the authorization against the Ministry of Finance register before approving.</div></div>
     <div class="d-flex gap-2"><button class="btn btn-outline-danger" onclick="rejectMof('${a.id}')">Return to applicant</button><button class="btn btn-primary" onclick="verifyMof('${a.id}')">${icon('check-lg', 'me-1')} Verify authorization</button></div>`;
   if (a.stage === 'payment_pending') action += `<div class="alert alert-warning small d-flex gap-2">${icon('credit-card')}<div>Awaiting ${K(fee)} from the applicant (joining fee ${K(JOINING_FEE)} + ${a.tier} dues ${K(TIERDUES[a.tier])}). The applicant pays online from Track application.</div></div>
@@ -198,12 +198,35 @@ function appDetail(id) {
       </div></div></div>
     </div>`;
 }
+// Opens the uploaded MoF authorization. Sample applications have no file, so a placeholder letter is shown instead.
+async function viewMof(id) {
+  const a = appById(id), file = await getDoc(id);
+  const url = file && URL.createObjectURL(file), name = a.mofFile || file?.name || 'authorization';
+  const body = !file ? `<div class="alert alert-light border small d-flex gap-2">${icon('info-circle', 'text-primary')}<div>No file is stored for this sample application. Showing a placeholder of the authorization letter.</div></div>
+      <div class="border rounded p-4 bg-white small" style="font-family:Georgia,serif">
+        <div class="text-center mb-4"><div class="fw-bold">REPUBLIC OF ZAMBIA</div><div class="fw-bold">MINISTRY OF FINANCE AND NATIONAL PLANNING</div><div class="text-body-secondary">Money Lenders Act, Chapter 398 of the Laws of Zambia</div></div>
+        <h3 class="h5 text-center mb-4">Certificate of Authorization to Carry on Money-Lending Business</h3>
+        <p>This is to certify that <b>${esc(a.name)}</b>${a.pacra ? ` (PACRA ${esc(a.pacra)})` : ''} of ${esc(a.town)} is authorized to carry on the business of money lending in accordance with the Money Lenders Act.</p>
+        <div class="d-flex flex-wrap gap-4 mt-4"><div><div class="text-body-secondary">Reference</div><b>${esc(a.mofRef)}</b></div>${a.mofExpiry ? `<div><div class="text-body-secondary">Valid until</div><b>${fmtDate(a.mofExpiry)}</b></div>` : ''}</div>
+      </div>`
+    : file.type.startsWith('image/') ? `<img src="${url}" alt="MoF authorization" class="img-fluid d-block mx-auto border rounded">`
+    : `<iframe src="${url}" title="MoF authorization" class="w-100 border rounded" style="height:70vh"></iframe>`;
+  const actions = a.stage === 'mof_review' ? `<button class="btn btn-outline-danger" data-reject>Return to applicant</button><button class="btn btn-primary" data-verify>${icon('check-lg', 'me-1')} Verify authorization</button>` : '';
+  const el = modal({
+    title: `MoF authorization · ${esc(a.name)}`, size: 'xl', body,
+    footer: `${file ? `<a class="btn btn-light me-auto" href="${url}" download="${esc(name)}">${icon('download', 'me-1')} Download</a><a class="btn btn-light" href="${url}" target="_blank" rel="noopener">${icon('box-arrow-up-right', 'me-1')} Open in new tab</a>` : ''}
+      <button class="btn btn-light" data-bs-dismiss="modal">Close</button>${actions}`,
+  });
+  if (url) el.addEventListener('hidden.bs.modal', () => URL.revokeObjectURL(url));
+  el.querySelector('[data-verify]')?.addEventListener('click', () => { el.close(); verifyMof(id); });
+  el.querySelector('[data-reject]')?.addEventListener('click', () => { el.close(); rejectMof(id); });
+}
 function verifyMof(id) { const a = appById(id); a.stage = 'payment_pending'; a.note = ''; commit(); toast('Authorization verified. Payment link sent to applicant'); rerender(); }
 function rejectMof(id) {
   confirmModal({
     title: 'Return to applicant', confirmText: 'Return application', tone: 'danger',
     body: `<label class="form-label small fw-medium">Reason (sent to the applicant)</label><textarea class="form-control" name="reason" rows="3" required>Authorization reference not found on the Ministry of Finance register. Please upload a valid authorization.</textarea>`,
-    onConfirm: el => { const v = readForm(el); if (!v) return false; Object.assign(appById(id), { stage: 'details', note: v.reason, mofRef: '—', mofFile: '' }); commit(); toast('Application returned to applicant'); rerender(); },
+    onConfirm: el => { const v = readForm(el); if (!v) return false; Object.assign(appById(id), { stage: 'details', note: v.reason, mofRef: '—', mofFile: '' }); deleteDoc(id); commit(); toast('Application returned to applicant'); rerender(); },
   });
 }
 function recordAppPayment(id) {
@@ -211,7 +234,7 @@ function recordAppPayment(id) {
   confirmModal({
     title: 'Record offline payment', confirmText: 'Record payment',
     body: `<p class="small text-body-secondary">Record ${K(JOINING_FEE + TIERDUES[a.tier])} received from ${esc(a.name)} outside the online checkout.</p>
-      <div class="row g-3"><div class="col-6"><label class="form-label small fw-medium">Method</label><select class="form-select" name="method"><option>Bank transfer</option><option>Cash</option><option>Cheque</option></select></div>
+      <div class="row g-3"><div class="col-6"><label class="form-label small fw-medium">Method</label><select class="form-select" name="method"><option>Bank transfer</option><option>Cash</option></select></div>
       <div class="col-6"><label class="form-label small fw-medium">Reference</label><input class="form-control" name="ref" required></div></div>`,
     onConfirm: el => {
       const v = readForm(el); if (!v) return false;
@@ -420,4 +443,4 @@ export const ADMIN_NAV = [
   ['Configure', [['settings', 'Settings', 'gear']]],
 ];
 export const ADMIN_PAGES = { dashboard, members, applications, certificates, payments, communications, events, directory, settings };
-expose({ exportMembers, setMFilter, sendReminder, setStatus, recordDues, verifyRenewal, verifyMof, rejectMof, recordAppPayment, issueAccreditation, reconcile, retryPayment, removeAnnouncement, broadcast, newEvent, manageEvent });
+expose({ exportMembers, setMFilter, sendReminder, setStatus, recordDues, verifyRenewal, viewMof, verifyMof, rejectMof, recordAppPayment, issueAccreditation, reconcile, retryPayment, removeAnnouncement, broadcast, newEvent, manageEvent });

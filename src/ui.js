@@ -1,12 +1,13 @@
 import { Modal, Toast } from 'bootstrap';
 import QRCode from 'qrcode';
-import { load, save, reset, nextId as seqId } from './store.js';
+import { load, save, reset, nextId as seqId, saveDoc, getDoc, deleteDoc } from './store.js';
 
 /* ================= STATE ================= */
 export const S = load();
 export const commit = () => save(S);
 export const nextId = (kind, prefix) => seqId(S, kind, prefix);
 export const resetData = reset;
+export { saveDoc, getDoc, deleteDoc };
 
 // Figures for the ~605 members that exist outside this prototype slice, so headline numbers stay realistic.
 const BASE = { members: 605, accredited: 543, duesOutstanding: 72, collected: 2448000, Gold: 210, Silver: 283, Bronze: 110 };

@@ -55,10 +55,27 @@ export function save(state) {
 }
 
 export function reset() {
-  try { localStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+  try { localStorage.removeItem(KEY); indexedDB.deleteDatabase(DB); } catch (e) { /* ignore */ }
 }
 
 export function nextId(state, kind, prefix) {
   state.seq[kind] += 1;
   return prefix + String(state.seq[kind]).padStart(4, '0');
 }
+
+// Uploaded documents (e.g. MoF authorizations) are kept in IndexedDB, since files are too large for localStorage.
+const DB = 'mlaz-docs', STORE = 'docs';
+const openDb = () => new Promise((res, rej) => {
+  const req = indexedDB.open(DB, 1);
+  req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+  req.onsuccess = () => res(req.result);
+  req.onerror = () => rej(req.error);
+});
+const tx = (mode, fn) => openDb().then(db => new Promise((res, rej) => {
+  const req = fn(db.transaction(STORE, mode).objectStore(STORE));
+  req.onsuccess = () => res(req.result);
+  req.onerror = () => rej(req.error);
+}));
+export const saveDoc = (key, file) => tx('readwrite', s => s.put(file, key)).catch(() => {});
+export const getDoc = key => tx('readonly', s => s.get(key)).catch(() => null);
+export const deleteDoc = key => tx('readwrite', s => s.delete(key)).catch(() => {});
