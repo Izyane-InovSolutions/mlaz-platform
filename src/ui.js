@@ -11,6 +11,7 @@ export { saveDoc, getDoc, deleteDoc };
 
 // Figures for the ~605 members that exist outside this prototype slice, so headline numbers stay realistic.
 const BASE = { members: 605, accredited: 543, duesOutstanding: 72, collected: 2448000, Gold: 210, Silver: 283, Bronze: 110 };
+const BASE_REGIONS = { Lusaka: 228, Copperbelt: 162, Southern: 58, Central: 41, Eastern: 34, 'North-Western': 29, Northern: 21, Luapula: 13, Muchinga: 10, Western: 9 };
 export const TIERDUES = { Bronze: 1800, Silver: 3000, Gold: 4500 };
 export const JOINING_FEE = 2000;
 
@@ -23,6 +24,7 @@ export const today = () => new Date().toISOString().slice(0, 10);
 export const nowLabel = () => 'Today ' + new Date().toTimeString().slice(0, 5);
 export const plusYear = () => { const d = new Date(); d.setFullYear(d.getFullYear() + 1); return d.toISOString().slice(0, 10); };
 export const fmtDate = d => new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+export const fmtDateTime = d => new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 export const nextYear = () => new Date().getFullYear() + 1;
 const AVA = ['#0b5e3b', '#1e5ba8', '#b7791f', '#7c3aed', '#0e8a89', '#c2410c', '#0b2e59', '#15803d'];
 export const avatar = (name, i, lg) => `<span class="avatar ${lg ? 'lg' : ''}" style="background:${AVA[i % AVA.length]}">${esc(initials(name))}</span>`;
@@ -33,10 +35,37 @@ export const appById = id => S.apps.find(a => a.id === id);
 export const inGoodStanding = m => m.status === 'active' && m.accred === 'issued';
 export const certNo = m => `MLAZ/ACC/${m.id.split('-')[1]}/${String(new Date(m.expiry).getFullYear() - 1).slice(2)}`;
 export const log = (memberId, icon, tone, title, sub) => { const m = memberById(memberId); if (m) (m.activity ||= []).unshift({ icon, tone, title, sub }); };
-export function addPayment(member, type, amt, method, status = 'success') {
+export function addPayment(member, type, amt, method, status = 'success', extra = {}) {
   const ref = nextId('pay', 'PAY-');
-  S.payments.unshift({ ref, member, type, amt, method, date: nowLabel(), status });
+  S.payments.unshift({ ref, member, type, amt, method, date: nowLabel(), at: new Date().toISOString(), status, ...extra });
   return ref;
+}
+
+/* Secretariat staff. Two demo users so maker-checker can be shown: one recommends, the other approves. */
+export const STAFF = {
+  'secretariat@mlaz.org.zm': { name: 'Grace Mwansa', title: 'Secretariat Admin' },
+  'officer@mlaz.org.zm': { name: 'John Phiri', title: 'Membership Officer' },
+};
+export const staffFor = email => STAFF[email] || { name: email.split('@')[0], title: 'Secretariat staff' };
+export const currentStaff = () => { const s = getSession(); return s?.role === 'admin' ? { ...staffFor(s.email), email: s.email } : null; };
+
+/* Audit trail: every decision is recorded with who made it and when. `by` defaults to the signed-in staff member. */
+export function audit(target, action, note = '', by) {
+  const st = currentStaff();
+  (S.audit ||= []).unshift({ at: new Date().toISOString(), by: by || (st ? `${st.name} (${st.title})` : 'System'), target, action, note });
+}
+
+/* Issues accreditation as soon as an application is verified and paid: creates the member and their certificate. */
+export function accredit(a) {
+  const id = nextId('member', 'MLA-');
+  S.members.push({
+    id, name: a.name, town: a.town, province: a.province, tier: a.tier, status: 'active', mof: 'valid', mofRef: a.mofRef, accred: 'issued', duesPaid: true,
+    expiry: plusYear(), contact: a.contact, phone: a.phone, email: a.email || '', joined: today(), pacra: a.pacra, tpin: a.tpin,
+    activity: [{ icon: 'award', tone: 'success', title: 'Accreditation issued', sub: `Certificate generated automatically ${fmtDate(new Date())}` }, { icon: 'credit-card', tone: 'warning', title: 'Joining fee and dues paid', sub: K(JOINING_FEE + TIERDUES[a.tier]) }],
+  });
+  a.stage = 'accredited'; a.memberId = id;
+  audit(a.id, 'Accreditation issued', `Member ${id} · certificate generated automatically on payment`, 'System');
+  return id;
 }
 export function totals() {
   const totalMembers = BASE.members + S.members.length;
@@ -45,12 +74,14 @@ export function totals() {
   const collected = BASE.collected + S.payments.filter(p => p.status === 'success').reduce((a, p) => a + p.amt, 0);
   const tiers = { Gold: BASE.Gold, Silver: BASE.Silver, Bronze: BASE.Bronze };
   S.members.forEach(m => tiers[m.tier]++);
-  return { totalMembers, accredited, outstanding, collected, tiers };
+  const regions = { ...BASE_REGIONS };
+  S.members.forEach(m => { if (m.province) regions[m.province] = (regions[m.province] || 0) + 1; });
+  return { totalMembers, accredited, outstanding, collected, tiers, regions };
 }
 export const counts = () => ({
   open: S.apps.filter(a => a.stage !== 'accredited').length,
   mofReview: S.apps.filter(a => a.stage === 'mof_review').length + S.members.filter(m => m.mofRenewalPending).length,
-  ready: S.apps.filter(a => a.stage === 'ready_accredit').length,
+  awaitingPayment: S.apps.filter(a => a.stage === 'payment_pending').length,
 });
 export function findMember(q) {
   const ql = String(q || '').trim().toLowerCase();
@@ -81,10 +112,12 @@ export const accredBadge = a => pill(cap(a), { issued: 'success', expired: 'warn
 export const mofBadge = s => pill(cap(s), s === 'valid' ? 'success' : 'danger');
 export const duesBadge = paid => paid ? pill('Paid', 'success') : pill('Outstanding', 'warning');
 export const STAGES = {
-  details: ['Awaiting documents', 'secondary'], mof_review: ['MoF review', 'warning'], payment_pending: ['Payment pending', 'info'],
-  ready_accredit: ['Ready to accredit', 'primary'], accredited: ['Accredited', 'success'],
+  details: ['Awaiting documents', 'secondary'], mof_review: ['MoF review', 'warning'], mof_approval: ['Awaiting approval', 'primary'],
+  payment_pending: ['Payment pending', 'info'], accredited: ['Accredited', 'success'],
 };
 export const stageBadge = s => { const [t, tone] = STAGES[s] || ['Unknown', 'secondary']; return pill(t, tone); };
+// Secretariat view: a recommended application is waiting on the checker, not the maker.
+export const appBadge = a => stageBadge(a.stage === 'mof_review' && a.recommendation ? 'mof_approval' : a.stage);
 export const payBadge = s => pill(cap(s), { success: 'success', pending: 'warning', failed: 'danger' }[s]);
 
 export const pageHeader = (title, sub, actions = '', crumbs = '') => `
@@ -159,30 +192,141 @@ export function readForm(root) {
 }
 
 /* ================= PAYMENTS (mobile money / card) ================= */
-export const PAY_METHODS = ['MTN Mobile Money', 'Airtel Money', 'Zamtel Kwacha', 'Visa / Mastercard', 'Bank transfer'];
-export const payMethodSelect = (id = 'paymethod') => `<select class="form-select" id="${id}">${PAY_METHODS.map(m => `<option>${m}</option>`).join('')}</select>`;
+export const PAY_METHODS = ['MTN Mobile Money', 'Airtel Money', 'Zamtel Kwacha', 'iZyane Pay QR', 'Visa / Mastercard', 'Bank transfer'];
+export const isQr = method => /QR/.test(method);
+const isCard = method => /Visa/.test(method), isBank = method => /Bank/.test(method);
+// MLAZ collection account shown to members paying by bank transfer (demo details).
+export const BANK = { bank: 'Zambia National Commercial Bank (Zanaco)', name: 'Money Lenders Association of Zambia', number: '0123 4567 8901', branch: 'Cairo Road, Lusaka' };
+
+/* Payment form whose fields follow the chosen method: phone for mobile money, card details, bank details with proof of payment, or nothing for QR. */
+const payInput = (name, label, attrs = '', col = 'col-12', err = 'Required.') => `<div class="${col}"><label class="form-label small fw-medium">${label}</label><input class="form-control" name="${name}" ${attrs} required><div class="invalid-feedback">${err}</div></div>`;
+function payFields(method, o) {
+  if (isQr(method)) return `<div class="alert alert-light border small d-flex gap-2 mb-0">${icon('qr-code')}<div>You’ll be shown a QR code to scan with your banking or mobile money app.</div></div>`;
+  if (isCard(method)) return `<div class="row g-2">${payInput('cardName', 'Name on card', 'autocomplete="cc-name"')}
+      ${payInput('cardNumber', 'Card number', 'inputmode="numeric" autocomplete="cc-number" pattern="[0-9 ]{13,23}" placeholder="0000 0000 0000 0000"', 'col-12', 'Enter a valid card number.')}
+      ${payInput('cardExp', 'Expiry', 'autocomplete="cc-exp" pattern="(0[1-9]|1[0-2])/[0-9]{2}" placeholder="MM/YY"', 'col-6', 'Use MM/YY.')}
+      ${payInput('cardCvv', 'CVV', 'inputmode="numeric" autocomplete="cc-csc" pattern="[0-9]{3,4}" placeholder="123"', 'col-6', '3 or 4 digits.')}</div>
+    <div class="small text-body-secondary mt-2">${icon('shield-lock', 'me-1')}Card details go straight to our PCI DSS-certified card partner. MLAZ never stores them.</div>`;
+  if (isBank(method)) {
+    const row = (k, v) => `<div class="d-flex justify-content-between gap-2"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
+    return `<div class="bg-body-tertiary rounded p-3 small d-grid gap-1 mb-3"><div class="fw-semibold mb-1">Pay into this account</div>
+        ${row('Bank', BANK.bank)}${row('Account name', BANK.name)}${row('Account number', `<span class="font-monospace">${BANK.number}</span>`)}${row('Branch', BANK.branch)}${row('Payment reference', `<span class="font-monospace">${esc(o.reference)}</span>`)}</div>
+      <div class="row g-2">${payInput('bankRef', 'Your bank transaction reference', 'placeholder="e.g. FT26285ABC12"')}
+        <div class="col-12"><label class="form-label small fw-medium">Proof of payment <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="pop" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach your deposit slip or transfer confirmation.</div></div></div>
+      <div class="small text-body-secondary mt-2">${icon('info-circle', 'me-1')}MLAZ Finance confirms bank transfers, usually within 1 working day. Your receipt is issued once it’s confirmed.</div>`;
+  }
+  return `${payInput('account', 'Mobile money number', `type="tel" value="${esc(o.phone)}" placeholder="097 000 0000"`)}
+    <div class="small text-body-secondary mt-2">${icon('phone', 'me-1')}You’ll get a prompt on this phone to approve with your PIN.</div>`;
+}
+export const payForm = (id, o = {}) => `<div id="${id}" data-phone="${esc(o.phone || '')}" data-reference="${esc(o.reference || '')}">
+  <label class="form-label small fw-medium">Payment method</label><select class="form-select mb-3" name="method" onchange="payMethodChange('${id}')">${PAY_METHODS.map(m => `<option>${m}</option>`).join('')}</select>
+  <div data-fields>${payFields(PAY_METHODS[0], { phone: o.phone || '', reference: o.reference || '' })}</div></div>`;
+function payMethodChange(id) { const el = document.getElementById(id); el.querySelector('[data-fields]').innerHTML = payFields(el.querySelector('[name=method]').value, el.dataset); }
+
+/* Takes payment for one or more line items from a payForm. Mobile money, QR and card settle straight away;
+   a bank transfer is recorded as pending with its proof of payment until Finance confirms it. */
+export function takePayment(formId, { payer, description, items, link = {}, onDone }) {
+  const el = document.getElementById(formId), v = readForm(el); if (!v) return;
+  const amount = items.reduce((n, i) => n + i.amt, 0);
+  if (isBank(v.method)) {
+    const file = el.querySelector('[name=pop]').files[0], popKey = `pop:${Date.now()}`;
+    const refs = items.map(i => addPayment(payer, i.type, i.amt, 'Bank transfer', 'pending', { ...link, bankRef: v.bankRef, pop: file.name, popKey }));
+    saveDoc(popKey, file);
+    onDone({ refs, pending: true, method: 'Bank transfer', detail: v.bankRef }); commit();
+    modal({
+      title: 'Proof of payment submitted',
+      body: `<div class="text-center py-3"><span class="icon-circle bg-info-subtle text-info-emphasis mb-3" style="width:64px;height:64px;font-size:1.8rem">${icon('hourglass-split')}</span>
+        <h5>Awaiting confirmation</h5><p class="text-body-secondary mb-1">${K(amount)} · ${esc(description)} · bank ref ${esc(v.bankRef)}</p>
+        <p class="small text-body-secondary mb-0">MLAZ Finance will confirm your transfer, usually within 1 working day. Your receipt will be emailed once it’s confirmed.</p></div>`,
+      footer: '<button class="btn btn-primary" data-bs-dismiss="modal">Done</button>',
+    });
+    return;
+  }
+  const detail = isCard(v.method) ? `•••• ${v.cardNumber.replace(/\D/g, '').slice(-4)}` : '';
+  payFlow({
+    amount, description, method: v.method, account: detail || v.account,
+    onSuccess: method => {
+      const refs = items.map(i => addPayment(payer, i.type, i.amt, method, 'success', { ...link, ...(detail && { detail }) }));
+      onDone({ refs, pending: false, method, detail }); commit(); return refs;
+    },
+  });
+}
+
+/* Confirms a pending payment and applies its effect: issues accreditation once an application is fully paid, or marks a member's dues paid. */
+export function confirmPayment(p) {
+  p.status = 'success';
+  if (p.app) {
+    const a = appById(p.app);
+    if (a?.stage === 'payment_pending' && S.payments.filter(x => x.app === a.id).every(x => x.status === 'success')) {
+      a.paymentPending = null; audit(a.id, 'Payment confirmed', `${p.method}${p.bankRef ? ` · ${p.bankRef}` : ''}`); accredit(a);
+    }
+  }
+  if (p.dues) {
+    const m = memberById(p.memberId);
+    if (m) { m.duesNext = m.duesPaid = true; m.duesPending = null; log(m.id, 'credit-card', 'warning', `${p.dues} dues paid`, `${K(p.amt)} · ${p.method}`); audit(m.id, 'Dues payment confirmed', `${K(p.amt)} · ${p.method}${p.bankRef ? ` · ${p.bankRef}` : ''}`); }
+  }
+}
 export function payFlow({ amount, description, method, account, onSuccess }) {
-  const mobile = /Money|Kwacha/.test(method);
+  const mobile = /Money|Kwacha/.test(method), qr = isQr(method);
   const el = modal({
     title: 'Complete payment',
-    body: `<div class="text-center py-3">
+    body: qr ? `<div class="text-center py-3">
+      <div class="small text-body-secondary">${esc(description)}</div>
+      <div class="display-6 fw-semibold my-2">${K(amount)}</div>
+      <img class="qr border rounded p-2 my-2" style="width:200px;height:200px" data-qr="${esc(`https://pay.izyane.com/mlaz?amt=${amount}&desc=${encodeURIComponent(description)}`)}" alt="Payment QR code">
+      <p class="mb-1 fw-medium">Scan to pay with iZyane Pay</p>
+      <p class="small text-body-secondary mb-0"><span class="spinner-border spinner-border-sm me-1"></span> Open your banking or mobile money app and scan the code. Waiting for confirmation…</p>
+    </div>` : `<div class="text-center py-3">
       <div class="small text-body-secondary">${esc(description)}</div>
       <div class="display-6 fw-semibold my-2">${K(amount)}</div>
       <div class="spinner-border text-primary my-3" role="status"></div>
       <p class="mb-1 fw-medium">${mobile ? `Payment request sent to ${esc(account)}` : 'Connecting to secure payment gateway…'}</p>
-      <p class="small text-body-secondary mb-0">${mobile ? `Approve the ${esc(method)} prompt on your phone and enter your PIN.` : `Paying with ${esc(method)}.`}</p>
+      <p class="small text-body-secondary mb-0">${mobile ? `Approve the ${esc(method)} prompt on your phone and enter your PIN.` : `Paying with ${esc(method)}${account ? ` ${esc(account)}` : ''}. Complete 3-D Secure if your bank asks.`}</p>
     </div>`,
     footer: '<button class="btn btn-light" data-bs-dismiss="modal">Cancel</button>',
   });
+  if (qr) fillQr(el);
   const timer = setTimeout(() => {
     if (!document.body.contains(el)) return;
-    const ref = onSuccess(method.replace('MTN Mobile Money', 'MTN MoMo'));
+    const refs = [].concat(onSuccess(method.replace('MTN Mobile Money', 'MTN MoMo')) || []);
     el.querySelector('.modal-body').innerHTML = `<div class="text-center py-3">
       <span class="icon-circle bg-success-subtle text-success-emphasis mb-3" style="width:64px;height:64px;font-size:1.8rem">${icon('check-lg')}</span>
-      <h5>Payment received</h5><p class="text-body-secondary mb-1">${K(amount)} · ${esc(description)}</p><p class="small text-body-secondary mb-0">Receipt ${esc(ref || '')} has been emailed to you.</p></div>`;
-    el.querySelector('.modal-footer').innerHTML = '<button class="btn btn-primary" data-bs-dismiss="modal">Done</button>';
-  }, 2600);
+      <h5>Payment received</h5><p class="text-body-secondary mb-1">${K(amount)} · ${esc(description)}</p><p class="small text-body-secondary mb-0">Receipt ${esc(refs[0] || '')} has been emailed to you.</p></div>`;
+    el.querySelector('.modal-footer').innerHTML = `${refs.length ? `<button class="btn btn-light" data-receipt>${icon('receipt', 'me-1')} View receipt</button>` : ''}<button class="btn btn-primary" data-bs-dismiss="modal">Done</button>`;
+    el.querySelector('[data-receipt]')?.addEventListener('click', () => { el.close(); setTimeout(() => viewReceipt(refs), 350); });
+  }, qr ? 5000 : 2600);
   el.addEventListener('hidden.bs.modal', () => clearTimeout(timer));
+}
+
+/* ================= RECEIPTS ================= */
+function receiptHtml(ps) {
+  const p0 = ps[0], total = ps.reduce((a, p) => a + p.amt, 0);
+  return `<div class="receipt border rounded p-4 bg-white">
+    <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
+      <div><div class="eyebrow">MONEY LENDERS ASSOCIATION OF ZAMBIA</div><h2 class="h4 mt-1 mb-0" style="color:var(--brand-dark)">Official receipt</h2></div>
+      <div class="text-end small"><div class="text-body-secondary">Receipt no.</div><div class="fw-semibold font-monospace">${ps.map(p => p.ref).join(', ')}</div></div>
+    </div>
+    <div class="row g-3 small mb-4">
+      <div class="col-sm-6"><div class="text-body-secondary">Received from</div><div class="fw-medium">${esc(p0.member)}</div></div>
+      <div class="col-sm-6"><div class="text-body-secondary">Date</div><div class="fw-medium">${p0.at ? fmtDateTime(p0.at) : esc(p0.date)}</div></div>
+      <div class="col-sm-6"><div class="text-body-secondary">Payment method</div><div class="fw-medium">${esc(p0.method)}${p0.detail ? ` ${esc(p0.detail)}` : ''}${p0.bankRef ? ` · ref ${esc(p0.bankRef)}` : ''}</div></div>
+      <div class="col-sm-6"><div class="text-body-secondary">Status</div><div class="fw-medium text-success-emphasis">${icon('check-circle-fill', 'me-1')}Paid</div></div>
+    </div>
+    <table class="table table-sm small mb-4"><thead><tr><th>Description</th><th class="text-end">Amount</th></tr></thead><tbody>
+      ${ps.map(p => `<tr><td>${esc(p.type)}</td><td class="text-end">${K(p.amt)}</td></tr>`).join('')}
+      <tr class="fw-semibold"><td>Total paid</td><td class="text-end">${K(total)}</td></tr></tbody></table>
+    <div class="small text-body-secondary">Processed by the iZyane payment gateway. This is a computer-generated receipt and does not require a signature.</div>
+  </div>`;
+}
+export function viewReceipt(refs) {
+  // Lines paid together in one bank transfer share a proof of payment and go on one receipt.
+  const ps = [].concat(refs).map(r => S.payments.find(p => p.ref === r)).filter(Boolean).flatMap(p => p.popKey ? S.payments.filter(x => x.popKey === p.popKey) : [p]).filter((p, i, all) => all.indexOf(p) === i);
+  if (!ps.length) return toast('Receipt not found', 'error');
+  const el = modal({
+    title: 'Payment receipt', size: 'lg', body: receiptHtml(ps),
+    footer: `<button class="btn btn-light" data-bs-dismiss="modal">Close</button><button class="btn btn-primary" data-print>${icon('download', 'me-1')} Download PDF</button>`,
+  });
+  el.querySelector('[data-print]').onclick = () => printDoc(`MLAZ receipt ${ps[0].ref}`, el.querySelector('.receipt').outerHTML);
 }
 
 /* ================= CERTIFICATE ================= */
@@ -217,14 +361,15 @@ export function viewCert(id) {
     footer: `<button class="btn btn-light" data-bs-dismiss="modal">Close</button><button class="btn btn-primary" data-print>${icon('download', 'me-1')} Download PDF</button>`,
   });
   fillQr(el);
-  el.querySelector('[data-print]').onclick = () => printCert(el.querySelector('.certificate').outerHTML);
+  el.querySelector('[data-print]').onclick = () => printDoc('MLAZ Accreditation Certificate', el.querySelector('.certificate').outerHTML);
 }
-function printCert(html) {
+/* Opens the markup in a new window with the app's styles and prints it, so it can be saved as PDF. */
+export function printDoc(title, html) {
   const win = window.open('', '_blank');
-  if (!win) return toast('Allow pop-ups to download the certificate', 'error');
+  if (!win) return toast('Allow pop-ups to download the document', 'error');
   const styles = [...document.querySelectorAll('style')].map(s => s.outerHTML).join('')
     + [...document.querySelectorAll('link[rel=stylesheet]')].map(l => `<link rel="stylesheet" href="${l.href}">`).join('');
-  win.document.write(`<!doctype html><html><head><title>MLAZ Accreditation Certificate</title>${styles}<style>body{background:#fff;padding:32px}</style></head><body>${html}</body></html>`);
+  win.document.write(`<!doctype html><html><head><title>${esc(title)}</title>${styles}<style>body{background:#fff;padding:32px}</style></head><body>${html}</body></html>`);
   win.document.close();
   win.onload = () => setTimeout(() => win.print(), 200);
 }
@@ -237,4 +382,4 @@ export function resetDemo() {
   });
 }
 
-expose({ viewCert, closeModal, resetDemo, nav });
+expose({ viewCert, viewReceipt, payMethodChange, closeModal, resetDemo, nav });

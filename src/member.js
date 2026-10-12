@@ -1,6 +1,6 @@
 import {
-  S, commit, esc, K, fmtDate, nextYear, TIERDUES, JOINING_FEE, memberById, certNo, log, addPayment, getSession, icon, statusBadge,
-  accredBadge, mofBadge, duesBadge, pageHeader, statCard, empty, listItem, toast, readForm, viewCert, payFlow, payMethodSelect, rerender, expose,
+  S, commit, esc, K, fmtDate, nextYear, TIERDUES, JOINING_FEE, memberById, certNo, log, getSession, icon, statusBadge,
+  accredBadge, mofBadge, duesBadge, pageHeader, statCard, empty, listItem, toast, readForm, viewCert, payForm, takePayment, rerender, expose, audit,
 } from './ui.js';
 
 const me = () => memberById(getSession()?.memberId);
@@ -57,6 +57,7 @@ function uploadRenewal() {
   const v = readForm(document.getElementById('renewform')); if (!v) return;
   const m = me(); m.mofRenewalPending = true; m.mofRenewalRef = v.ref;
   log(m.id, 'file-earmark-arrow-up', 'info', 'MoF renewal uploaded', `${v.ref} · ${v.file}`);
+  audit(m.id, 'MoF renewal uploaded', v.ref, `${m.contact} (member)`);
   commit(); toast('Authorization submitted for verification'); rerender();
 }
 
@@ -67,28 +68,31 @@ function dues() {
     + `<div class="row g-3"><div class="col-lg-5"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">${nextYear()} annual dues</h2></div><div class="card-body">
       <div class="d-flex justify-content-between small py-2 border-bottom"><span class="text-body-secondary">${m.tier} tier</span><span>${K(amt)}</span></div>
       <div class="d-flex justify-content-between fw-semibold py-2 mb-3"><span>Balance due</span><span>${m.duesNext ? K(0) : K(amt)}</span></div>
-      ${m.duesNext ? `<div class="alert alert-success small d-flex gap-2 mb-0">${icon('check-circle')}<div>${nextYear()} dues are paid. Your membership and accreditation remain active.</div></div>` : `
-      <label class="form-label small fw-medium">Payment method</label>${payMethodSelect()}
-      <label class="form-label small fw-medium mt-3">Mobile number / account</label><input class="form-control" id="payacct" value="${esc(m.phone)}">
+      ${m.duesNext ? `<div class="alert alert-success small d-flex gap-2 mb-0">${icon('check-circle')}<div>${nextYear()} dues are paid. Your membership and accreditation remain active.</div></div>`
+      : m.duesPending ? `<div class="alert alert-info small d-flex gap-2 mb-0">${icon('hourglass-split')}<div>Your bank transfer for ${K(amt)} is awaiting confirmation by MLAZ Finance, usually within 1 working day. Your receipt is issued once it’s confirmed.</div></div>` : `
+      ${payForm('duespay', { phone: m.phone, reference: m.id })}
       <button class="btn btn-primary w-100 mt-3" onclick="payDues()">Pay ${K(amt)}</button>
       <div class="small text-body-secondary text-center mt-2">${icon('lock', 'me-1')}Secured payment · receipt emailed automatically</div>`}
     </div></div></div>
     <div class="col-lg-7"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Payment history</h2></div>
-      <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Description</th><th>Method</th><th>Date</th><th class="text-end">Amount</th></tr></thead><tbody>
-      ${hist.map(p => `<tr><td>${esc(p.type)}<div class="small text-body-secondary font-monospace">${p.ref}</div></td><td class="small">${esc(p.method)}</td><td class="small">${esc(p.date)}</td><td class="text-end fw-medium">${K(p.amt)}</td></tr>`).join('')}
-      <tr><td>2025 annual dues</td><td class="small">Bank transfer</td><td class="small">28 Jan 2025</td><td class="text-end fw-medium">K4,200</td></tr>
-      <tr><td>Joining fee</td><td class="small">Bank transfer</td><td class="small">${fmtDate(m.joined)}</td><td class="text-end fw-medium">${K(JOINING_FEE)}</td></tr>
+      <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Description</th><th>Method</th><th>Date</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
+      ${hist.map(p => `<tr><td>${esc(p.type)}<div class="small text-body-secondary font-monospace">${p.ref}</div></td><td class="small">${esc(p.method)}</td><td class="small">${esc(p.date)}</td><td class="text-end fw-medium">${K(p.amt)}</td><td class="text-end"><button class="btn btn-sm btn-light" title="Receipt" onclick="viewReceipt('${p.ref}')">${icon('receipt')}</button></td></tr>`).join('')}
+      <tr><td>2025 annual dues</td><td class="small">Bank transfer</td><td class="small">28 Jan 2025</td><td class="text-end fw-medium">K4,200</td><td></td></tr>
+      <tr><td>Joining fee</td><td class="small">Bank transfer</td><td class="small">${fmtDate(m.joined)}</td><td class="text-end fw-medium">${K(JOINING_FEE)}</td><td></td></tr>
       </tbody></table></div></div></div></div>`;
 }
 function payDues() {
-  const m = me(), amt = TIERDUES[m.tier], account = document.getElementById('payacct').value.trim();
-  if (!account) return toast('Enter a mobile number or account', 'error');
-  payFlow({
-    amount: amt, description: `${nextYear()} annual dues (${m.tier})`, method: document.getElementById('paymethod').value, account,
-    onSuccess: method => {
-      const ref = addPayment(m.name, `${nextYear()} annual dues (${m.tier})`, amt, method);
-      m.duesNext = true; m.duesPaid = true; log(m.id, 'credit-card', 'warning', `${nextYear()} dues paid`, `${K(amt)} · ${method}`);
-      commit(); setTimeout(rerender, 50); return ref;
+  const m = me(), amt = TIERDUES[m.tier];
+  takePayment('duespay', {
+    payer: m.name, description: `${nextYear()} annual dues (${m.tier})`, link: { memberId: m.id, dues: nextYear() },
+    items: [{ type: `${nextYear()} annual dues (${m.tier})`, amt }],
+    onDone: ({ refs, pending, method, detail }) => {
+      if (pending) { m.duesPending = refs[0]; audit(m.id, 'Proof of payment submitted', `${K(amt)} · bank transfer · ref ${detail}`, `${m.contact} (member)`); }
+      else {
+        m.duesNext = true; m.duesPaid = true; log(m.id, 'credit-card', 'warning', `${nextYear()} dues paid`, `${K(amt)} · ${method}`);
+        audit(m.id, 'Dues paid online', `${K(amt)} · ${method} · ${refs[0]}`, `${m.contact} (member)`);
+      }
+      setTimeout(rerender, 50);
     },
   });
 }

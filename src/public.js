@@ -1,7 +1,7 @@
 import {
   S, commit, nextId, esc, K, fmtDate, nowLabel, plusYear, TIERDUES, JOINING_FEE, totals, inGoodStanding, findMember, memberById, appById,
-  icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast, payFlow, payMethodSelect, addPayment,
-  setSession, nav, after, expose, empty, saveDoc,
+  icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast, payForm, takePayment,
+  setSession, nav, after, expose, empty, saveDoc, accredit, audit, staffFor, STAFF,
 } from './ui.js';
 
 /* ================= LAYOUT ================= */
@@ -232,10 +232,10 @@ export function scrollPendingSection() {
 
 /* ================= APPLY ================= */
 const PROVINCES = ['Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka', 'Muchinga', 'North-Western', 'Northern', 'Southern', 'Western'];
-const W_STEPS = ['Business', 'Contact', 'Authorization', 'Review'];
+const W_STEPS = ['Business', 'Contact', 'Documents', 'Review'];
 let W = null;
 function apply(tier) {
-  W = { step: 0, data: { tier: TIER_INFO[tier] ? tier : 'Silver' } };
+  W = { step: 0, data: { tier: TIER_INFO[tier] ? tier : 'Silver' }, blobs: {} };
   after(renderWizard);
   return `<section class="py-5 bg-body-tertiary min-vh-75">
     <div class="container">
@@ -246,7 +246,8 @@ function apply(tier) {
           <div class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
             <h2 class="h6 fw-semibold mb-3">What you’ll need</h2>
             <ul class="list-unstyled small d-grid gap-2 mb-0">
-              <li>${icon('file-earmark-text', 'text-primary me-2')}PACRA certificate of incorporation number</li>
+              <li>${icon('file-earmark-text', 'text-primary me-2')}PACRA certificate of incorporation and ZRA TPIN</li>
+              <li>${icon('person-vcard', 'text-primary me-2')}A director’s NRC (PDF or image)</li>
               <li>${icon('file-earmark-check', 'text-primary me-2')}Ministry of Finance money-lending authorization (PDF or image)</li>
               <li>${icon('person', 'text-primary me-2')}A contact person, phone number and email</li>
               <li>${icon('phone', 'text-primary me-2')}Mobile money, card or bank account to pay fees</li>
@@ -266,14 +267,17 @@ function renderWizard() {
   const box = document.getElementById('wizard'); if (!box) return;
   const d = W.data;
   const f = (name, label, opts = {}) => `<div class="${opts.col || 'col-md-6'}"><label class="form-label small fw-medium">${label}${opts.req === false ? ' <span class="text-body-secondary fw-normal">(optional)</span>' : ''}</label>
-    <input class="form-control" name="${name}" type="${opts.type || 'text'}" ${opts.req === false ? '' : 'required'} placeholder="${opts.ph || ''}" value="${esc(d[name] || '')}">
+    <input class="form-control" name="${name}" type="${opts.type || 'text'}" ${opts.req === false ? '' : 'required'} ${opts.pattern ? `pattern="${opts.pattern}"` : ''} placeholder="${opts.ph || ''}" value="${esc(d[name] || '')}">
     <div class="invalid-feedback">${opts.err || 'This field is required.'}</div></div>`;
+  // A file already attached on an earlier visit to this step stays attached, so the input is only required when nothing is on file.
+  const file = (name, label, req = true) => `<div class="col-12"><label class="form-label small fw-medium">${label} <span class="text-body-secondary fw-normal">(PDF, JPG or PNG${req ? '' : ', optional'})</span></label>
+    <input class="form-control" type="file" name="${name}" accept=".pdf,.jpg,.jpeg,.png" ${req && !d[name] ? 'required' : ''}>${d[name] ? `<div class="form-text">${icon('paperclip')} ${esc(d[name])} attached</div>` : ''}<div class="invalid-feedback">Attach this document.</div></div>`;
   let body = '';
   if (W.step === 0) body = `<h2 class="h5 mb-1">Business details</h2><p class="small text-body-secondary mb-4">As registered with PACRA.</p>
     <div class="row g-3">
       ${f('name', 'Registered business name', { col: 'col-12' })}
       ${f('pacra', 'PACRA registration number', { ph: 'e.g. 120240012345' })}
-      ${f('tpin', 'ZRA TPIN', { req: false })}
+      ${f('tpin', 'ZRA TPIN', { ph: '10 digits', pattern: '[0-9]{10}', err: 'Enter your 10-digit TPIN.' })}
       ${f('town', 'Town / city')}
       <div class="col-md-6"><label class="form-label small fw-medium">Province</label><select class="form-select" name="province" required><option value="">Select province</option>${PROVINCES.map(p => `<option ${d.province === p ? 'selected' : ''}>${p}</option>`).join('')}</select><div class="invalid-feedback">Select a province.</div></div>
       ${f('address', 'Physical address', { col: 'col-12' })}
@@ -283,16 +287,21 @@ function renderWizard() {
     </div>`;
   if (W.step === 1) body = `<h2 class="h5 mb-1">Contact person</h2><p class="small text-body-secondary mb-4">We’ll send application updates to this person.</p>
     <div class="row g-3">${f('contact', 'Full name')}${f('position', 'Position', { ph: 'e.g. Managing Director' })}${f('phone', 'Phone number', { type: 'tel', ph: '097 000 0000' })}${f('email', 'Email address', { type: 'email', err: 'Enter a valid email address.' })}</div>`;
-  if (W.step === 2) body = `<h2 class="h5 mb-1">Ministry of Finance authorization</h2><p class="small text-body-secondary mb-4">Your money-lending authorization is verified before accreditation is issued.</p>
-    <div class="alert alert-info small d-flex gap-2">${icon('info-circle')}<div>Don’t have it to hand? You can skip this step and upload it later from <b>Track application</b>, using the reference you receive.</div></div>
-    <div class="row g-3">${f('mofRef', 'Authorization reference', { req: false, ph: 'MoF/ML/2026/0000', col: 'col-12' })}
-      <div class="col-12"><label class="form-label small fw-medium">Authorization document <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="mofFile" accept=".pdf,.jpg,.jpeg,.png">${d.mofFile ? `<div class="form-text">${icon('paperclip')} ${esc(d.mofFile)} attached</div>` : ''}</div></div>`;
+  if (W.step === 2) body = `<h2 class="h5 mb-1">Documents</h2><p class="small text-body-secondary mb-4">Company and director documents, and your Ministry of Finance authorization.</p>
+    <h3 class="h6 fw-semibold">Company and director</h3>
+    <div class="row g-3 mb-4">${file('pacraFile', 'PACRA certificate of incorporation')}
+      ${f('director', 'Director full name')}${f('directorNrc', 'Director NRC number', { ph: '000000/00/0', pattern: '[0-9]{6}/[0-9]{2}/[0-9]', err: 'Use the format 000000/00/0.' })}
+      ${file('nrcFile', 'Copy of director’s NRC')}</div>
+    <h3 class="h6 fw-semibold">Ministry of Finance authorization</h3>
+    <div class="alert alert-info small d-flex gap-2">${icon('info-circle')}<div>Don’t have it to hand? You can leave this blank and upload it later from <b>Track application</b>, using the reference you receive.</div></div>
+    <div class="row g-3">${f('mofRef', 'Authorization reference', { req: false, ph: 'MoF/ML/2026/0000', col: 'col-12' })}${file('mofFile', 'Authorization document', false)}</div>`;
   if (W.step === 3) {
     const row = (k, v) => `<div class="d-flex justify-content-between py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
     body = `<h2 class="h5 mb-1">Review and submit</h2><p class="small text-body-secondary mb-4">Please confirm your details are correct.</p>
       <div class="row g-4">
-        <div class="col-md-6"><div class="small fw-semibold text-uppercase text-body-secondary mb-1">Business</div>${row('Name', esc(d.name))}${row('PACRA no.', esc(d.pacra))}${row('Location', `${esc(d.town)}, ${esc(d.province)}`)}${row('Tier', d.tier)}</div>
-        <div class="col-md-6"><div class="small fw-semibold text-uppercase text-body-secondary mb-1">Contact</div>${row('Name', esc(d.contact))}${row('Phone', esc(d.phone))}${row('Email', esc(d.email))}${row('MoF authorization', d.mofRef || d.mofFile ? esc(d.mofRef || d.mofFile) : '<span class="text-warning-emphasis">To upload later</span>')}</div>
+        <div class="col-md-6"><div class="small fw-semibold text-uppercase text-body-secondary mb-1">Business</div>${row('Name', esc(d.name))}${row('PACRA no.', esc(d.pacra))}${row('TPIN', esc(d.tpin))}${row('Location', `${esc(d.town)}, ${esc(d.province)}`)}${row('Tier', d.tier)}</div>
+        <div class="col-md-6"><div class="small fw-semibold text-uppercase text-body-secondary mb-1">Contact</div>${row('Name', esc(d.contact))}${row('Phone', esc(d.phone))}${row('Email', esc(d.email))}${row('Director', `${esc(d.director)} · ${esc(d.directorNrc)}`)}</div>
+        <div class="col-12"><div class="small fw-semibold text-uppercase text-body-secondary mb-1">Documents</div>${row('PACRA certificate', esc(d.pacraFile))}${row('Director NRC', esc(d.nrcFile))}${row('MoF authorization', d.mofRef || d.mofFile ? esc([d.mofRef, d.mofFile].filter(Boolean).join(' · ')) : '<span class="text-warning-emphasis">To upload later</span>')}</div>
       </div>
       <div class="bg-body-tertiary rounded p-3 mt-4 small">
         <div class="d-flex justify-content-between"><span>Joining fee (one-off)</span><span>${K(JOINING_FEE)}</span></div>
@@ -310,9 +319,11 @@ function renderWizard() {
 function wizCapture() {
   const v = readForm(document.getElementById('wform'));
   if (!v) return false;
-  const file = document.querySelector('#wform [name=mofFile]')?.files[0];
-  if (file) W.mofBlob = file;
-  if (!v.mofFile) delete v.mofFile;
+  ['mofFile', 'pacraFile', 'nrcFile'].forEach(k => {
+    const file = document.querySelector(`#wform [name=${k}]`)?.files[0];
+    if (file) W.blobs[k] = file;
+    if (!v[k]) delete v[k];
+  });
   Object.assign(W.data, v); return true;
 }
 function wizNext() { if (!wizCapture()) return; W.step++; renderWizard(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
@@ -324,9 +335,12 @@ function wizSubmit() {
     id: nextId('app', 'APP-'), name: d.name, town: d.town, province: d.province, address: d.address, contact: d.contact, position: d.position,
     phone: d.phone, email: d.email, pacra: d.pacra, tpin: d.tpin, tier: d.tier, stage: hasMof ? 'mof_review' : 'details', submitted: nowLabel(),
     mofRef: hasMof ? (d.mofRef || 'Uploaded document') : '—', mofFile: d.mofFile || '', mofExpiry: hasMof ? plusYear() : '',
+    director: d.director, directorNrc: d.directorNrc, pacraFile: d.pacraFile || '', nrcFile: d.nrcFile || '',
   };
-  S.apps.unshift(app); commit();
-  if (W.mofBlob) saveDoc(app.id, W.mofBlob);
+  S.apps.unshift(app);
+  audit(app.id, 'Application submitted', hasMof ? 'MoF authorization, PACRA certificate and director NRC uploaded' : 'PACRA certificate and director NRC uploaded · MoF authorization to follow', `${d.contact} (applicant)`);
+  commit();
+  Object.entries(W.blobs).forEach(([k, file]) => saveDoc(`${app.id}:${k.replace('File', '')}`, file));
   document.getElementById('wizard').innerHTML = `<div class="text-center py-4">
     <span class="icon-circle bg-success-subtle text-success-emphasis mb-3" style="width:72px;height:72px;font-size:2rem">${icon('check-lg')}</span>
     <h2 class="h4">Application submitted</h2>
@@ -337,7 +351,7 @@ function wizSubmit() {
         ${hasMof ? '' : '<li>Upload your Ministry of Finance authorization from Track application.</li>'}
         <li>The Secretariat verifies your MoF authorization (1–2 working days).</li>
         <li>You pay the joining fee and first year’s dues online.</li>
-        <li>Your accreditation certificate is issued and your member portal is activated.</li>
+        <li>Your accreditation certificate is issued automatically and your member portal is activated.</li>
       </ol></div>
     <div class="d-flex justify-content-center gap-2 mt-4"><a href="#/" class="btn btn-light">Back to home</a><a href="#/track/${app.id}" class="btn btn-primary">Track application</a></div>
   </div>`;
@@ -346,7 +360,7 @@ function wizSubmit() {
 
 /* ================= TRACK APPLICATION ================= */
 const TRACK_STEPS = ['Submitted', 'MoF authorization', 'Verification', 'Payment', 'Accredited'];
-const TRACK_IDX = { details: 1, mof_review: 2, payment_pending: 3, ready_accredit: 4, accredited: 5 };
+const TRACK_IDX = { details: 1, mof_review: 2, payment_pending: 3, accredited: 5 };
 function track(ref) {
   const a = ref ? appById(ref.trim().toUpperCase()) : null;
   let result = '';
@@ -361,7 +375,8 @@ function track(ref) {
         <div class="col-12"><button class="btn btn-primary">Submit for verification</button></div>
       </form>`;
     if (a.stage === 'mof_review') action = `<div class="alert alert-info d-flex gap-2 mb-0">${icon('hourglass-split')}<div>Your authorization <b>${esc(a.mofRef)}</b> is being verified by the Secretariat. This usually takes 1–2 working days. We’ll email you when it’s done.</div></div>`;
-    if (a.stage === 'payment_pending') {
+    if (a.stage === 'payment_pending' && a.paymentPending) action = `<div class="alert alert-info d-flex gap-2 mb-0">${icon('hourglass-split')}<div>We’ve received your proof of payment for <b>${K(JOINING_FEE + TIERDUES[a.tier])}</b>. MLAZ Finance will confirm the transfer, usually within 1 working day, and your accreditation certificate is issued automatically once it’s confirmed.</div></div>`;
+    else if (a.stage === 'payment_pending') {
       const fee = JOINING_FEE + TIERDUES[a.tier];
       action = `<div class="alert alert-success d-flex gap-2">${icon('check-circle')}<div>Your MoF authorization has been verified. Complete payment to receive your accreditation.</div></div>
       <div class="row g-4">
@@ -369,14 +384,13 @@ function track(ref) {
           <div class="d-flex justify-content-between"><span>Joining fee</span><span>${K(JOINING_FEE)}</span></div>
           <div class="d-flex justify-content-between"><span>${a.tier} annual dues</span><span>${K(TIERDUES[a.tier])}</span></div>
           <div class="d-flex justify-content-between fw-semibold border-top mt-2 pt-2"><span>Total due</span><span>${K(fee)}</span></div></div></div>
-        <div class="col-md-6"><label class="form-label small fw-medium">Payment method</label>${payMethodSelect('tmethod')}
-          <label class="form-label small fw-medium mt-2">Mobile number / account</label><input class="form-control" id="tacct" value="${esc(a.phone)}">
+        <div class="col-md-6">${payForm('tpay', { phone: a.phone, reference: a.id })}
           <button class="btn btn-primary w-100 mt-3" onclick="trackPay('${a.id}')">Pay ${K(fee)}</button></div>
       </div>`;
     }
-    if (a.stage === 'ready_accredit') action = `<div class="alert alert-success d-flex gap-2 mb-0">${icon('check-circle')}<div>Payment received. Your accreditation certificate is being issued — you’ll receive it by email shortly.</div></div>`;
     if (a.stage === 'accredited') { const m = memberById(a.memberId); action = `<div class="alert alert-success d-flex gap-2">${icon('award')}<div>Congratulations — you are now an accredited MLAZ member. Your member number is <b>${a.memberId}</b>.</div></div>
-      <p class="small">Sign in to the member portal with <b>${esc(m?.email || a.email)}</b> to download your certificate and manage your membership.</p><a class="btn btn-primary" href="#/login/member">Go to member portal</a>`; }
+      <p class="small">Your certificate has been emailed to you. Sign in to the member portal with <b>${esc(m?.email || a.email)}</b> to manage your membership.</p>
+      <div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-primary" onclick="viewCert('${a.memberId}')">${icon('award', 'me-1')} View certificate</button><a class="btn btn-primary" href="#/login/member">Go to member portal</a></div>`; }
     result = `<div class="card border-0 shadow-sm"><div class="card-body p-4 p-md-5">
       <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-4"><div><div class="small text-body-secondary font-monospace">${a.id}</div><h2 class="h4 mb-0">${esc(a.name)}</h2><div class="small text-body-secondary">${esc(a.town)} · ${a.tier} tier · submitted ${esc(a.submitted)}</div></div>${stageBadge(a.stage)}</div>
       <div class="mb-4">${stepper(TRACK_STEPS, TRACK_IDX[a.stage])}</div>${action}</div></div>`;
@@ -390,19 +404,21 @@ function track(ref) {
 }
 function trackUpload(id) {
   const form = document.getElementById('mofform'), v = readForm(form); if (!v) return;
-  saveDoc(id, form.querySelector('[name=mofFile]').files[0]);
-  Object.assign(appById(id), { stage: 'mof_review', note: '', mofRef: v.mofRef, mofExpiry: plusYear(), mofFile: v.mofFile });
+  const a = appById(id);
+  saveDoc(`${id}:mof`, form.querySelector('[name=mofFile]').files[0]);
+  Object.assign(a, { stage: 'mof_review', note: '', mofRef: v.mofRef, mofExpiry: plusYear(), mofFile: v.mofFile, recommendation: null });
+  audit(id, 'MoF authorization uploaded', v.mofRef, `${a.contact} (applicant)`);
   commit(); toast('Authorization submitted for verification'); nav('track/' + id);
 }
 function trackPay(id) {
-  const a = appById(id), account = document.getElementById('tacct').value.trim();
-  if (!account) return toast('Enter a mobile number or account', 'error');
-  payFlow({
-    amount: JOINING_FEE + TIERDUES[a.tier], description: `Joining fee & ${a.tier} dues`, method: document.getElementById('tmethod').value, account,
-    onSuccess: method => {
-      addPayment(a.name, 'Joining fee', JOINING_FEE, method);
-      const ref = addPayment(a.name, `Annual dues (${a.tier})`, TIERDUES[a.tier], method);
-      a.stage = 'ready_accredit'; commit(); setTimeout(() => nav('track/' + id), 50); return ref;
+  const a = appById(id), fee = JOINING_FEE + TIERDUES[a.tier];
+  takePayment('tpay', {
+    payer: a.name, description: `Joining fee & ${a.tier} dues`, link: { app: a.id },
+    items: [{ type: 'Joining fee', amt: JOINING_FEE }, { type: `Annual dues (${a.tier})`, amt: TIERDUES[a.tier] }],
+    onDone: ({ refs, pending, method, detail }) => {
+      if (pending) { a.paymentPending = refs; audit(id, 'Proof of payment submitted', `${K(fee)} · bank transfer · ref ${detail}`, `${a.contact} (applicant)`); }
+      else { audit(id, 'Payment received', `${K(fee)} · ${method} · ${refs.join(', ')}`, `${a.contact} (applicant)`); accredit(a); }
+      setTimeout(() => nav('track/' + id), 50);
     },
   });
 }
@@ -429,7 +445,8 @@ function login(role) {
         </div>
         <button class="btn btn-primary btn-lg w-100">Sign in</button>
       </form>
-      ${member ? '<p class="text-center small mt-4 mb-0 text-body-secondary">Not a member yet? <a href="#/apply">Apply for membership</a></p>' : ''}
+      ${member ? '<p class="text-center small mt-4 mb-0 text-body-secondary">Not a member yet? <a href="#/apply">Apply for membership</a></p>'
+        : `<div class="small text-body-secondary mt-4"><div class="fw-medium mb-1">Demo staff accounts</div>${Object.entries(STAFF).map(([e, st]) => `<div>${esc(e)} · ${esc(st.title)}</div>`).join('')}</div>`}
     </div></div>
     
   </div></div></div></section>`;
@@ -440,7 +457,7 @@ function doLogin(role, form) {
   if (!email || !pwd) return err('Enter your email address and password.');
   if (role === 'admin') {
     if (!email.endsWith('@mlaz.org.zm')) return err('This account does not have Secretariat access.');
-    setSession({ role: 'admin', email, name: 'MLAZ Admin' });
+    setSession({ role: 'admin', email, name: staffFor(email).name });
     return nav('app/dashboard');
   }
   const m = S.members.find(x => String(x.email).toLowerCase() === email);

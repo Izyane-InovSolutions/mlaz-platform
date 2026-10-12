@@ -3,7 +3,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import './styles.scss';
 import 'bootstrap';
 import { Offcanvas } from 'bootstrap';
-import { getSession, setSession, setRenderer, flushAfter, closeAllModals, nav, expose, icon, esc, initials, after } from './ui.js';
+import { getSession, setSession, setRenderer, flushAfter, closeAllModals, nav, expose, icon, esc, initials, after, rerender, toast, STAFF, staffFor } from './ui.js';
 import { PUBLIC, publicLayout, scrollPendingSection } from './public.js';
 import { ADMIN_NAV, ADMIN_PAGES, adminSearch } from './admin.js';
 import { MEMBER_NAV, MEMBER_PAGES, currentMember } from './member.js';
@@ -13,7 +13,10 @@ function appLayout(session, page, inner) {
   const admin = session.role === 'admin';
   const navDef = admin ? ADMIN_NAV : MEMBER_NAV;
   const m = admin ? null : currentMember();
-  const user = admin ? { name: 'MLAZ Admin', sub: session.email, init: 'MA' } : { name: m.contact, sub: m.name, init: initials(m.name) };
+  const st = admin && staffFor(session.email);
+  const user = admin ? { name: st.name, sub: st.title, init: initials(st.name) } : { name: m.contact, sub: m.name, init: initials(m.name) };
+  // Demo only: lets one person play both maker and checker without signing out.
+  const switchTo = admin ? Object.entries(STAFF).filter(([e]) => e !== session.email).map(([e, o]) => `<li><a class="dropdown-item" href="javascript:void 0" onclick="switchStaff('${e}')">${icon('arrow-left-right', 'me-2')}Switch to ${esc(o.name)} <span class="small text-body-secondary">(${esc(o.title)})</span></a></li>`).join('') : '';
   const sidebar = navDef.map(([section, items]) => `<div class="nav-section">${section}</div>` + items.map(([id, label, ic, badge]) => {
     const n = badge ? badge() : 0;
     return `<a class="nav-link ${id === page ? 'active' : ''}" href="#/app/${id}">${icon(ic)}<span>${label}</span>${n ? `<span class="badge rounded-pill text-bg-danger">${n}</span>` : ''}</a>`;
@@ -46,7 +49,7 @@ function appLayout(session, page, inner) {
               ${icon('chevron-down', 'small text-body-secondary')}
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-              ${admin ? '' : `<li><a class="dropdown-item" href="#/app/profile">${icon('building', 'me-2')}Business profile</a></li>`}
+              ${admin ? switchTo : `<li><a class="dropdown-item" href="#/app/profile">${icon('building', 'me-2')}Business profile</a></li>`}
               <li><a class="dropdown-item" href="#/">${icon('globe', 'me-2')}Public website</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item text-danger" href="javascript:void 0" onclick="logout()">${icon('box-arrow-right', 'me-2')}Sign out</a></li>
@@ -67,6 +70,7 @@ function topSearch(q) {
 document.addEventListener('click', e => { if (!e.target.closest('.app-search')) document.getElementById('searchres')?.classList.remove('show'); });
 
 function logout() { setSession(null); nav(''); }
+function switchStaff(email) { setSession({ role: 'admin', email, name: staffFor(email).name }); rerender(); toast(`Signed in as ${staffFor(email).name}`); }
 
 /* ================= ROUTER ================= */
 let lastHash = null;
@@ -92,7 +96,7 @@ function route() {
   lastHash = location.hash;
 }
 
-expose({ topSearch, logout });
+expose({ topSearch, logout, switchStaff });
 setRenderer(route);
 window.addEventListener('hashchange', route);
 route();
