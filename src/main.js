@@ -30,7 +30,7 @@ function appLayout(session, page, inner) {
     <div class="offcanvas-body">
       <a href="#/" class="sidebar-brand d-none d-lg-flex align-items-center gap-2 text-white"><span class="brand-mark">${icon('shield-check')}</span><span class="lh-sm"><span class="d-block fw-bold">MLAZ</span><span class="small opacity-75">${admin ? 'Secretariat console' : 'Member portal'}</span></span></a>
       <nav class="nav flex-column">${sidebar}</nav>
-      <div class="mt-auto pt-4 small opacity-50 px-2">Platform by iZyane InovSolutions</div>
+      <div class="mt-auto pt-4 small opacity-50 px-2"><span class="ms-lg-auto d-flex align-items-center gap-2">Platform by <a href="https://izyane.com" target="_blank" class="text-decoration-underline"><span class="footer-logo"><img src="/izyane-white.png" alt="iZyane"></span></a></span></div>
     </div>
   </aside>
   <div class="app-main">
