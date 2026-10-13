@@ -39,7 +39,7 @@ function appLayout(session, page, inner) {
         <button class="btn btn-light d-lg-none" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-label="Menu">${icon('list')}</button>
         ${admin ? `<div class="app-search flex-grow-1 dropdown">
           <div class="input-group"><span class="input-group-text bg-body-tertiary border-end-0">${icon('search')}</span><input class="form-control bg-body-tertiary border-start-0" id="topsearch" placeholder="Search members and applications" autocomplete="off" oninput="topSearch(this.value)"></div>
-          <div class="dropdown-menu shadow-sm" id="searchres"></div></div>` : `<div class="fw-semibold d-none d-md-block">${esc(m.name)} <span class="text-body-secondary fw-normal small ms-1">${m.id}</span></div>`}
+          <div class="dropdown-menu shadow-sm" id="searchres"></div></div>` : ''}
         <div class="ms-auto d-flex align-items-center gap-2">
           <a class="btn btn-light d-none d-md-inline-flex align-items-center gap-1" href="#/" title="Public website">${icon('globe')}<span class="small">Website</span></a>
           <div class="dropdown">

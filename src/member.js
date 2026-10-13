@@ -11,7 +11,10 @@ function overview() {
   const alerts = [];
   if (m.status !== 'active') alerts.push(`<div class="alert alert-danger d-flex gap-2">${icon('exclamation-octagon')}<div>Your membership is <b>${m.status}</b>. ${m.mof !== 'valid' ? 'Upload a valid Ministry of Finance authorization to restore your accreditation.' : 'Settle outstanding dues to restore your accreditation.'}</div></div>`);
   if (!m.duesNext) alerts.push(`<div class="alert alert-warning d-flex align-items-center gap-2">${icon('info-circle')}<div class="me-auto">${nextYear()} annual dues of ${K(TIERDUES[m.tier])} are now payable.</div><a class="btn btn-sm btn-warning" href="#/app/dues">Pay now</a></div>`);
-  return pageHeader(`Welcome, ${esc(m.contact)}`, `${esc(m.name)} · ${m.id}`)
+  return `<div class="card band-dark border-0 shadow-sm mb-4"><div class="card-body p-4">
+      <h1 class="h4 mb-1">${esc(m.name)}</h1>
+      <div class="small opacity-75">Member ID ${m.id}</div>
+    </div></div>`
     + alerts.join('')
     + `<div class="row g-3 mb-4">
       <div class="col-sm-6 col-xl-3">${statCard('Membership', statusBadge(m.status), `${m.tier} tier`, 'person-check', 'primary')}</div>
