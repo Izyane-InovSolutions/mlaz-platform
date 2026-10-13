@@ -3,7 +3,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import './styles.scss';
 import 'bootstrap';
 import { Offcanvas } from 'bootstrap';
-import { getSession, setSession, setRenderer, flushAfter, closeAllModals, nav, expose, icon, esc, initials, after, rerender, toast, STAFF, staffFor } from './ui.js';
+import { ready, getSession, setSession, setRenderer,flushAfter, closeAllModals, nav, expose, icon, esc, initials, after, rerender, toast, STAFF, staffFor } from './ui.js';
 import { PUBLIC, publicLayout, scrollPendingSection } from './public.js';
 import { ADMIN_NAV, ADMIN_PAGES, adminSearch } from './admin.js';
 import { MEMBER_NAV, MEMBER_PAGES, currentMember } from './member.js';
@@ -98,5 +98,15 @@ function route() {
 
 expose({ topSearch, logout, switchStaff });
 setRenderer(route);
-window.addEventListener('hashchange', route);
-route();
+const root = document.getElementById('root');
+root.innerHTML = `<div class="min-vh-100 d-flex align-items-center justify-content-center"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading…</span></div></div>`;
+ready.then(() => {
+  window.addEventListener('hashchange', route);
+  route();
+}, e => {
+  console.error('Could not load data', e);
+  root.innerHTML = `<div class="min-vh-100 d-flex align-items-center justify-content-center p-3"><div class="text-center" style="max-width:420px">
+    <span class="icon-circle bg-danger-subtle text-danger-emphasis mb-3" style="width:64px;height:64px;font-size:1.8rem">${icon('wifi-off')}</span>
+    <h1 class="h5">Couldn’t load the platform</h1><p class="text-body-secondary">Check your internet connection and try again.</p>
+    <button class="btn btn-primary" onclick="location.reload()">Try again</button></div></div>`;
+});

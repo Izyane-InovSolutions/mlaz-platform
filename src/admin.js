@@ -2,7 +2,7 @@ import {
   S, commit, nextId, esc, K, KM, fmtDate, today, plusYear, TIERDUES, JOINING_FEE, totals, counts, memberById, appById, inGoodStanding,
   certNo, log, addPayment, icon, avatar, statusBadge, tierBadge, accredBadge, mofBadge, duesBadge, appBadge, payBadge, pageHeader,
   statCard, stepper, empty, listItem, toast, modal, confirmModal, readForm, viewCert, nav, rerender, expose, getDoc, deleteDoc,
-  fmtDateTime, audit, accredit, currentStaff, printDoc, confirmPayment,
+  fmtDateTime, audit, accredit, currentStaff, printDoc, confirmPayment, remote,
 } from './ui.js';
 
 const crumb = (href, label, current) => `<li class="breadcrumb-item"><a href="#/app/${href}">${label}</a></li><li class="breadcrumb-item active">${esc(current)}</li>`;
@@ -603,7 +603,7 @@ function settings() {
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Certificate template</h2></div><div class="card-body small text-body-secondary">MLAZ-branded accreditation with serial number, QR verification and 12-month validity. Generated automatically once the MoF authorization is verified and fees are paid.</div></div></div>
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Integrations</h2></div><div class="list-group list-group-flush">
         ${[['phone', 'Mobile money (MTN, Airtel, Zamtel)', 1], ['qr-code', 'iZyane Pay QR', 1], ['credit-card', 'Card & bank payments', 1], ['search', 'ZRA TPIN lookup', 1], ['envelope', 'Email & SMS gateway', 1], ['link-45deg', 'iZyane Credit Bureau (SSO)', 0]].map(([ic, n, on]) => listItem(ic, 'info', n, '', on ? '<span class="badge bg-success-subtle text-success-emphasis">Connected</span>' : '<span class="badge bg-secondary-subtle text-secondary-emphasis">Available add-on</span>')).join('')}</div></div></div>
-      <div class="col-12"><div class="card"><div class="card-body d-flex flex-wrap align-items-center gap-3"><div class="me-auto"><h2 class="h6 mb-1">Demo data</h2><div class="small text-body-secondary">This prototype stores changes in your browser. Reset to restore the original sample data.</div></div><button class="btn btn-outline-danger" onclick="resetDemo()">Reset demo data</button></div></div></div>
+      <div class="col-12"><div class="card"><div class="card-body d-flex flex-wrap align-items-center gap-3"><div class="me-auto"><h2 class="h6 mb-1">Demo data</h2><div class="small text-body-secondary">${remote ? 'Data is shared by everyone using the platform. Resetting deletes all records and documents and restores the original sample data for everyone.' : 'This prototype stores changes in your browser. Reset to restore the original sample data.'}</div></div><button class="btn btn-outline-danger" onclick="resetDemo()">Reset demo data</button></div></div></div>
     </div>`;
 }
 

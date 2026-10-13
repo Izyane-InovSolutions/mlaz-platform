@@ -1,13 +1,39 @@
 import { Modal, Toast } from 'bootstrap';
 import QRCode from 'qrcode';
-import { load, save, reset, nextId as seqId, saveDoc, getDoc, deleteDoc } from './store.js';
+import { init, save, reset, remote, nextId as seqId, saveDoc, getDoc, deleteDoc } from './store.js';
 
 /* ================= STATE ================= */
-export const S = load();
-export const commit = () => save(S);
+// Filled once `ready` resolves; changes made on other devices are merged in live and the page redrawn.
+export const S = {};
+export const ready = init(S, () => refreshSoon());
+// Saves in the background and resolves to whether it succeeded; the UI updates straight away either way.
+export const commit = () => save(S).then(r => {
+  if (r.conflict) { toast('Someone else changed this record at the same time, so your change wasn’t saved. Please try again.', 'error'); rerender(); }
+  else if (!r.ok) toast('Couldn’t reach the server, so your change isn’t saved yet. It will be retried automatically.', 'error');
+  return r.ok;
+});
 export const nextId = (kind, prefix) => seqId(S, kind, prefix);
 export const resetData = reset;
-export { saveDoc, getDoc, deleteDoc };
+export { saveDoc, getDoc, deleteDoc, remote };
+
+/* Redraws the console and application tracking pages after a change from another device, but never while a dialog is
+   open or a field has been edited: that waits until the dialog closes or they move to another page (which redraws anyway).
+   Other public pages aren't redrawn, since that would restart the application wizard. */
+const LIVE = /^#\/(app|track)(\/|$)/;
+const edited = () => [...document.querySelectorAll('#root input, #root textarea, #root select')].some(el =>
+  el.type === 'checkbox' || el.type === 'radio' ? el.checked !== el.defaultChecked
+    : el.tagName === 'SELECT' ? [...el.options].some(o => o.selected !== o.defaultSelected) : el.value !== el.defaultValue);
+let stale = false, timer;
+window.addEventListener('hashchange', () => { stale = false; });
+document.addEventListener('hidden.bs.modal', () => { if (stale) refreshSoon(); });
+function refreshSoon() {
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    if (!LIVE.test(location.hash)) return;
+    if (edited() || document.querySelector('.modal.show')) { stale = true; return; }
+    stale = false; rerender();
+  }, 150);
+}
 
 // Figures for the ~605 members that exist outside this prototype slice, so headline numbers stay realistic.
 const BASE = { members: 605, accredited: 543, duesOutstanding: 72, collected: 2448000, Gold: 210, Silver: 283, Bronze: 110 };
@@ -229,7 +255,7 @@ export function takePayment(formId, { payer, description, items, link = {}, onDo
   const el = document.getElementById(formId), v = readForm(el); if (!v) return;
   const amount = items.reduce((n, i) => n + i.amt, 0);
   if (isBank(v.method)) {
-    const file = el.querySelector('[name=pop]').files[0], popKey = `pop:${Date.now()}`;
+    const file = el.querySelector('[name=pop]').files[0], popKey = `pop:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const refs = items.map(i => addPayment(payer, i.type, i.amt, 'Bank transfer', 'pending', { ...link, bankRef: v.bankRef, pop: file.name, popKey }));
     saveDoc(popKey, file);
     onDone({ refs, pending: true, method: 'Bank transfer', detail: v.bankRef }); commit();
@@ -376,9 +402,13 @@ export function printDoc(title, html) {
 
 export function resetDemo() {
   confirmModal({
-    title: 'Reset demo data', body: 'This restores the original sample members, applications and payments. Changes made in this browser will be lost.',
+    title: 'Reset demo data', body: remote
+      ? 'This restores the original sample members, applications and payments <b>for everyone using the platform</b>. All other records and uploaded documents will be deleted.'
+      : 'This restores the original sample members, applications and payments. Changes made in this browser will be lost.',
     confirmText: 'Reset', tone: 'danger',
-    onConfirm: () => { resetData(); setSession(null); location.hash = '#/'; location.reload(); },
+    onConfirm: () => {
+      resetData().then(() => { setSession(null); location.hash = '#/'; location.reload(); }, () => toast('Couldn’t reset the data. Please try again.', 'error'));
+    },
   });
 }
 
