@@ -1,8 +1,9 @@
 import {
   S, commit, esc, K, fmtDate, nextYear, TIERDUES, JOINING_FEE, memberById, certNo, log, getSession, icon, statusBadge,
   accredBadge, mofBadge, duesBadge, pageHeader, statCard, empty, listItem, toast, readForm, viewCert, payForm, takePayment, rerender, expose, audit,
-  eventByName, ticketPrice, priceLabel, tix, confirmModal,
+  eventByName, ticketPrice, priceLabel, tix, confirmModal, modal,
 } from './ui.js';
+import { lookup, customersOf, isGood, GOOD_SCORE, SCORE_MIN, SCORE_MAX, NRC_PATTERN } from './bureau.js';
 
 const me = () => memberById(getSession()?.memberId);
 
@@ -194,6 +195,91 @@ function cancelReg(i) {
   });
 }
 
+/* ================= CUSTOMERS & CREDIT CHECKS ================= */
+let CFILTER = 'all', CQUERY = '', LOOKUP = null; // LOOKUP: { nrc, rec } from the last NRC search
+const scoreBadge = s => `<span class="badge rounded-pill bg-${isGood(s) ? 'success' : 'danger'}-subtle text-${isGood(s) ? 'success' : 'danger'}-emphasis border border-${isGood(s) ? 'success' : 'danger'}-subtle">${s} · ${isGood(s) ? 'Good' : 'Bad'}</span>`;
+const LOAN_STATUS = { current: ['Current', 'success'], arrears: ['In arrears', 'danger'], closed: ['Closed', 'secondary'] };
+const loanBadge = s => { const [t, tone] = LOAN_STATUS[s]; return `<span class="badge rounded-pill bg-${tone}-subtle text-${tone}-emphasis border border-${tone}-subtle">${t}</span>`; };
+const ageOf = dob => Math.floor((Date.now() - new Date(dob)) / 3.15576e10);
+
+function creditReport(c) {
+  const good = isGood(c.score), pct = Math.round((c.score - SCORE_MIN) / (SCORE_MAX - SCORE_MIN) * 100);
+  const row = (k, v) => `<div class="d-flex justify-content-between gap-2 py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
+  return `<div class="row g-4"><div class="col-md-5">
+      <div class="text-center border rounded p-3 mb-3">
+        <div class="small text-body-secondary">Credit score</div>
+        <div class="display-5 fw-semibold text-${good ? 'success' : 'danger'}-emphasis">${c.score}</div>
+        <div class="mb-2">${scoreBadge(c.score)}</div>
+        <div class="progress" style="height:6px" role="progressbar" aria-label="Score" aria-valuenow="${c.score}" aria-valuemin="${SCORE_MIN}" aria-valuemax="${SCORE_MAX}"><div class="progress-bar bg-${good ? 'success' : 'danger'}" style="width:${pct}%"></div></div>
+        <div class="d-flex justify-content-between small text-body-secondary mt-1"><span>${SCORE_MIN}</span><span>${GOOD_SCORE}+ good</span><span>${SCORE_MAX}</span></div>
+      </div>
+      ${row('Name', esc(c.name))}${row('NRC', `<span class="font-monospace">${esc(c.nrc)}</span>`)}${row('Date of birth', `${fmtDate(c.dob)} (${ageOf(c.dob)})`)}${row('Phone', esc(c.phone))}${row('Town', esc(c.town))}
+    </div><div class="col-md-7">
+      <div class="small fw-semibold mb-1">Employment</div>
+      ${row('Employer', esc(c.employer))}${row('Monthly income (declared)', K(c.income))}
+      <div class="small fw-semibold mt-3 mb-1">Credit history</div>
+      ${row('Repayments on time', `${c.onTime}%`)}${row('Active loans', c.activeLoans)}${row('Total owed to lenders', K(c.totalOwed))}
+      ${row('Defaults (last 5 years)', c.defaults ? `<span class="text-danger-emphasis">${c.defaults}</span>` : '0')}${row('Credit enquiries (last 6 months)', c.enquiries)}
+      ${c.lenders.length ? row('Current lenders', c.lenders.map(esc).join('<br>')) : ''}
+      ${c.loan ? `<div class="small fw-semibold mt-3 mb-1">Loan with you</div>${row('Amount', K(c.loan.amount))}${row('Balance', K(c.loan.balance))}${row('Issued', fmtDate(c.loan.issued))}${row('Status', loanBadge(c.loan.status))}` : ''}
+    </div></div>
+    <div class="small text-body-secondary mt-3">${icon('info-circle', 'me-1')}Simulated credit bureau data for demonstration. Scores of ${GOOD_SCORE} and above are rated good.</div>`;
+}
+
+function customers() {
+  const m = me(), book = customersOf(m.id);
+  const good = book.filter(c => isGood(c.score)).length, avg = Math.round(book.reduce((n, c) => n + c.score, 0) / book.length);
+  const q = CQUERY.toLowerCase();
+  const shown = book.filter(c => (CFILTER === 'all' || (CFILTER === 'good') === isGood(c.score)) && (!q || c.name.toLowerCase().includes(q) || c.nrc.includes(q)));
+  const chip = (k, label) => `<button class="btn btn-sm ${CFILTER === k ? 'btn-primary' : 'btn-outline-secondary'}" onclick="setCFilter('${k}')">${label}</button>`;
+  const result = !LOOKUP ? '' : LOOKUP.rec
+    ? `<div class="card mb-4 border-primary-subtle"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1">Credit report · ${esc(LOOKUP.rec.name)}</h2>${LOOKUP.rec.loan ? '<span class="badge bg-primary-subtle text-primary-emphasis ms-2">Your customer</span>' : ''}<button class="btn-close ms-auto" aria-label="Close" onclick="clearLookup()"></button></div><div class="card-body">${creditReport(LOOKUP.rec)}</div></div>`
+    : `<div class="alert alert-warning d-flex align-items-center gap-2">${icon('person-x')}<div class="me-auto">The credit bureau has no record for NRC <b class="font-monospace">${esc(LOOKUP.nrc)}</b>. Ask the customer for another form of identification or a payslip.</div><button class="btn-close" aria-label="Close" onclick="clearLookup()"></button></div>`;
+  return pageHeader('Customers', 'Your borrowers and their credit scores, plus credit checks on any NRC')
+    + `<div class="card mb-4"><div class="card-body">
+      <form class="row g-2 align-items-start" novalidate onsubmit="event.preventDefault();searchNrc(this)">
+        <div class="col-md"><label class="form-label small fw-medium" for="nrcq">Credit check by NRC number</label>
+          <input class="form-control font-monospace" id="nrcq" name="nrc" required pattern="${NRC_PATTERN}" placeholder="e.g. 284512/11/1" value="${esc(LOOKUP?.nrc || '')}">
+          <div class="invalid-feedback">Enter the NRC as 6 digits / 2 digits / 1 digit, e.g. 284512/11/1.</div>
+          <div class="form-text">Searches the credit bureau for anyone, not only your customers. Every check is logged.</div></div>
+        <div class="col-md-auto"><label class="form-label small d-none d-md-block">&nbsp;</label><button class="btn btn-primary w-100">${icon('search', 'me-1')} Check credit</button></div>
+      </form></div></div>
+    ${result}
+    <div class="row g-3 mb-4">
+      <div class="col-sm-6 col-xl-3">${statCard('Customers', book.length, `${book.filter(c => c.loan.status !== 'closed').length} with open loans`, 'people', 'primary')}</div>
+      <div class="col-sm-6 col-xl-3">${statCard('Good scores', good, `${GOOD_SCORE} and above`, 'hand-thumbs-up', 'success')}</div>
+      <div class="col-sm-6 col-xl-3">${statCard('Bad scores', book.length - good, `below ${GOOD_SCORE}`, 'hand-thumbs-down', 'danger')}</div>
+      <div class="col-sm-6 col-xl-3">${statCard('Average score', avg, isGood(avg) ? 'Good overall' : 'Below the good threshold', 'speedometer2', 'info')}</div>
+    </div>
+    <div class="card"><div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center">
+      <h2 class="h6 mb-0 py-1 me-auto">Your customers</h2>
+      <input class="form-control form-control-sm" style="max-width:220px" type="search" placeholder="Filter by name or NRC" value="${esc(CQUERY)}" oninput="setCQuery(this.value)">
+      <div class="d-flex gap-1">${chip('all', 'All')}${chip('good', 'Good')}${chip('bad', 'Bad')}</div>
+    </div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Customer</th><th>NRC</th><th class="text-end">Loan</th><th class="text-end">Balance</th><th>Status</th><th>Credit score</th><th></th></tr></thead><tbody>
+      ${shown.map(c => `<tr><td><div class="fw-medium">${esc(c.name)}</div><div class="small text-body-secondary">${esc(c.town)}</div></td><td class="small font-monospace">${esc(c.nrc)}</td>
+        <td class="text-end">${K(c.loan.amount)}</td><td class="text-end">${K(c.loan.balance)}</td><td>${loanBadge(c.loan.status)}</td><td>${scoreBadge(c.score)}</td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-secondary" onclick="viewCustomer('${c.nrc}')">View</button></td></tr>`).join('')
+        || `<tr><td colspan="7">${empty('No customers match.', 'people')}</td></tr>`}
+    </tbody></table></div></div>`;
+}
+function setCFilter(k) { CFILTER = k; rerender(); }
+function setCQuery(v) {
+  CQUERY = v; rerender();
+  const el = document.querySelector('input[type=search]'); el.focus(); el.setSelectionRange(v.length, v.length);
+}
+function clearLookup() { LOOKUP = null; rerender(); }
+function viewCustomer(nrc) {
+  const c = customersOf(me().id).find(x => x.nrc === nrc);
+  modal({ title: `Credit report · ${esc(c.name)}`, size: 'lg', body: creditReport(c), footer: '<button class="btn btn-primary" data-bs-dismiss="modal">Close</button>' });
+}
+function searchNrc(form) {
+  const v = readForm(form); if (!v) return;
+  const m = me(), own = customersOf(m.id).find(c => c.nrc === v.nrc);
+  LOOKUP = { nrc: v.nrc, rec: own || lookup(v.nrc) };
+  audit(m.id, 'Credit check', `NRC ${v.nrc} · ${LOOKUP.rec ? `score ${LOOKUP.rec.score}` : 'no bureau record'}`, `${m.contact} (member)`);
+  commit(); rerender();
+}
+
 function announcements() {
   return pageHeader('Announcements', 'Notices from the MLAZ Secretariat')
     + `<div class="d-grid gap-3">${S.announce.map(a => `<div class="card"><div class="card-body"><div class="d-flex gap-2 align-items-center small text-body-secondary mb-1"><span class="badge bg-secondary-subtle text-secondary-emphasis">${esc(a.tag)}</span>${fmtDate(a.date)}</div><h2 class="h6 fw-semibold mb-1">${esc(a.title)}</h2><p class="small text-body-secondary mb-0">${esc(a.body)}</p></div></div>`).join('') || empty('No announcements.')}</div>`;
@@ -218,8 +304,9 @@ function saveProfile() {
 
 export const MEMBER_NAV = [
   ['My membership', [['overview', 'Overview', 'grid-1x2'], ['certificates', 'Certificates', 'award'], ['dues', 'Dues & payments', 'credit-card', () => (me()?.duesNext ? 0 : 1)]]],
+  ['Lending', [['customers', 'Customers', 'people']]],
   ['Engage', [['events', 'Events', 'calendar-event'], ['announcements', 'Announcements', 'megaphone'], ['profile', 'Business profile', 'building']]],
 ];
-export const MEMBER_PAGES = { overview, certificates, dues, events, announcements, profile };
+export const MEMBER_PAGES = { overview, certificates, dues, customers, events, announcements, profile };
 export const currentMember = me;
-expose({ uploadRenewal, payDues, evQty, registerEvent, cancelReg, saveProfile });
+expose({ uploadRenewal, payDues, evQty, registerEvent, cancelReg, setCFilter, setCQuery, clearLookup, viewCustomer, searchNrc, saveProfile });
