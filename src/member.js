@@ -1,9 +1,9 @@
 import {
   S, commit, esc, K, fmtDate, nextYear, TIERDUES, JOINING_FEE, memberById, certNo, log, getSession, icon, statusBadge,
   accredBadge, mofBadge, duesBadge, pageHeader, statCard, empty, listItem, toast, readForm, viewCert, payForm, takePayment, rerender, expose, audit,
-  eventByName, ticketPrice, priceLabel, tix, confirmModal, modal,
+  eventByName, ticketPrice, priceLabel, tix, confirmModal, modal, NRC_ATTRS,
 } from './ui.js';
-import { lookup, customersOf, isGood, GOOD_SCORE, SCORE_MIN, SCORE_MAX, NRC_PATTERN } from './bureau.js';
+import { lookup, customersOf, isGood, GOOD_SCORE, SCORE_MIN, SCORE_MAX } from './bureau.js';
 
 const me = () => memberById(getSession()?.memberId);
 
@@ -239,8 +239,8 @@ function customers() {
     + `<div class="card mb-4"><div class="card-body">
       <form class="row g-2 align-items-start" novalidate onsubmit="event.preventDefault();searchNrc(this)">
         <div class="col-md"><label class="form-label small fw-medium" for="nrcq">Credit check by NRC number</label>
-          <input class="form-control font-monospace" id="nrcq" name="nrc" required pattern="${NRC_PATTERN}" placeholder="e.g. 284512/11/1" value="${esc(LOOKUP?.nrc || '')}">
-          <div class="invalid-feedback">Enter the NRC as 6 digits / 2 digits / 1 digit, e.g. 284512/11/1.</div>
+          <input class="form-control font-monospace" id="nrcq" name="nrc" required ${NRC_ATTRS} value="${esc(LOOKUP?.nrc || '')}">
+          <div class="invalid-feedback">Enter all 9 digits, e.g. 284512/11/1.</div>
           <div class="form-text">Searches the credit bureau for anyone, not only your customers. Every check is logged.</div></div>
         <div class="col-md-auto"><label class="form-label small d-none d-md-block">&nbsp;</label><button class="btn btn-primary w-100">${icon('search', 'me-1')} Check credit</button></div>
       </form></div></div>

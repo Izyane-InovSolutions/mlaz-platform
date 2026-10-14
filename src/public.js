@@ -1,7 +1,7 @@
 import {
   S, commit, nextId, esc, K, fmtDate, nowLabel, plusYear, TIERDUES, JOINING_FEE, totals, inGoodStanding, findMember, memberById, appById,
   icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast, payForm, takePayment,
-  setSession, nav, after, expose, empty, saveDoc, accredit, audit, staffFor, STAFF, priceLabel,
+  setSession, nav, after, expose, empty, saveDoc, accredit, audit, staffFor, STAFF, priceLabel, NRC_ATTRS, digitsAttrs,
 } from './ui.js';
 
 /* ================= LAYOUT ================= */
@@ -267,7 +267,7 @@ function renderWizard() {
   const box = document.getElementById('wizard'); if (!box) return;
   const d = W.data;
   const f = (name, label, opts = {}) => `<div class="${opts.col || 'col-md-6'}"><label class="form-label small fw-medium">${label}${opts.req === false ? ' <span class="text-body-secondary fw-normal">(optional)</span>' : ''}</label>
-    <input class="form-control" name="${name}" type="${opts.type || 'text'}" ${opts.req === false ? '' : 'required'} ${opts.pattern ? `pattern="${opts.pattern}"` : ''} placeholder="${opts.ph || ''}" value="${esc(d[name] || '')}">
+    <input class="form-control" name="${name}" type="${opts.type || 'text'}" ${opts.req === false ? '' : 'required'} ${opts.attrs || `${opts.pattern ? `pattern="${opts.pattern}"` : ''} placeholder="${opts.ph || ''}"`} value="${esc(d[name] || '')}">
     <div class="invalid-feedback">${opts.err || 'This field is required.'}</div></div>`;
   // A file already attached on an earlier visit to this step stays attached, so the input is only required when nothing is on file.
   const file = (name, label, req = true) => `<div class="col-12"><label class="form-label small fw-medium">${label} <span class="text-body-secondary fw-normal">(PDF, JPG or PNG${req ? '' : ', optional'})</span></label>
@@ -276,8 +276,8 @@ function renderWizard() {
   if (W.step === 0) body = `<h2 class="h5 mb-1">Business details</h2><p class="small text-body-secondary mb-4">As registered with PACRA.</p>
     <div class="row g-3">
       ${f('name', 'Registered business name', { col: 'col-12' })}
-      ${f('pacra', 'PACRA registration number', { ph: 'e.g. 120240012345' })}
-      ${f('tpin', 'ZRA TPIN', { ph: '10 digits', pattern: '[0-9]{10}', err: 'Enter your 10-digit TPIN.' })}
+      ${f('pacra', 'PACRA registration number', { attrs: digitsAttrs(12, 'e.g. 120240012345'), err: 'Enter your 12-digit PACRA number.' })}
+      ${f('tpin', 'ZRA TPIN', { attrs: digitsAttrs(10, 'e.g. 1001845523'), err: 'Enter your 10-digit TPIN.' })}
       ${f('town', 'Town / city')}
       <div class="col-md-6"><label class="form-label small fw-medium">Province</label><select class="form-select" name="province" required><option value="">Select province</option>${PROVINCES.map(p => `<option ${d.province === p ? 'selected' : ''}>${p}</option>`).join('')}</select><div class="invalid-feedback">Select a province.</div></div>
       ${f('address', 'Physical address', { col: 'col-12' })}
@@ -290,7 +290,7 @@ function renderWizard() {
   if (W.step === 2) body = `<h2 class="h5 mb-1">Documents</h2><p class="small text-body-secondary mb-4">Company and director documents, and your Ministry of Finance authorization.</p>
     <h3 class="h6 fw-semibold">Company and director</h3>
     <div class="row g-3 mb-4">${file('pacraFile', 'PACRA certificate of incorporation')}
-      ${f('director', 'Director full name')}${f('directorNrc', 'Director NRC number', { ph: '000000/00/0', pattern: '[0-9]{6}/[0-9]{2}/[0-9]', err: 'Use the format 000000/00/0.' })}
+      ${f('director', 'Director full name')}${f('directorNrc', 'Director NRC number', { attrs: NRC_ATTRS, err: 'Enter all 9 digits, e.g. 284512/11/1.' })}
       ${file('nrcFile', 'Copy of director’s NRC')}</div>
     <h3 class="h6 fw-semibold">Ministry of Finance authorization</h3>
     <div class="alert alert-info small d-flex gap-2">${icon('info-circle')}<div>Don’t have it to hand? You can leave this blank and upload it later from <b>Track application</b>, using the reference you receive.</div></div>

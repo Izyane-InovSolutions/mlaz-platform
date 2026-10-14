@@ -195,6 +195,22 @@ export function readForm(root) {
   return ok ? out : null;
 }
 
+/* NRC inputs: digits only (max 9), with the slashes of 000000/00/0 inserted as the user types. */
+export const NRC_ATTRS = 'inputmode="numeric" autocomplete="off" maxlength="11" pattern="[0-9]{6}/[0-9]{2}/[0-9]" placeholder="000000/00/0" oninput="nrcMask(this)"';
+export const formatNrc = v => { const d = String(v).replace(/\D/g, '').slice(0, 9); return [d.slice(0, 6), d.slice(6, 8), d.slice(8)].filter(Boolean).join('/'); };
+function nrcMask(el) {
+  // Keep the caret after the same number of digits, so editing mid-number doesn't jump to the end.
+  const digitsBefore = el.value.slice(0, el.selectionStart).replace(/\D/g, '').length;
+  el.value = formatNrc(el.value);
+  let pos = 0, seen = 0;
+  while (pos < el.value.length && seen < digitsBefore) { if (/\d/.test(el.value[pos])) seen++; pos++; }
+  el.setSelectionRange(pos, pos);
+}
+
+/* Fixed-length number inputs (TPIN, PACRA): digits only, capped at n. */
+export const digitsAttrs = (n, ph = `${n} digits`) => `inputmode="numeric" autocomplete="off" maxlength="${n}" pattern="[0-9]{${n}}" placeholder="${ph}" oninput="digitsOnly(this)"`;
+function digitsOnly(el) { const v = el.value.replace(/\D/g, '').slice(0, el.maxLength); if (v !== el.value) el.value = v; }
+
 /* ================= PAYMENTS (mobile money / card) ================= */
 export const PAY_METHODS = ['MTN Mobile Money', 'Airtel Money', 'Zamtel Kwacha', 'iZyane Pay QR', 'Visa / Mastercard', 'Bank transfer'];
 export const isQr = method => /QR/.test(method);
@@ -390,4 +406,4 @@ export function resetDemo() {
   });
 }
 
-expose({ viewCert, viewReceipt, payMethodChange, closeModal, resetDemo, nav });
+expose({ nrcMask, digitsOnly, viewCert, viewReceipt, payMethodChange, closeModal, resetDemo, nav });
