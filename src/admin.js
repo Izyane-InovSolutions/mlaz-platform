@@ -2,7 +2,7 @@ import {
   S, commit, nextId, esc, K, KM, fmtDate, today, plusYear, TIERDUES, JOINING_FEE, totals, counts, memberById, appById, inGoodStanding,
   certNo, log, addPayment, icon, avatar, statusBadge, tierBadge, accredBadge, mofBadge, duesBadge, appBadge, payBadge, pageHeader,
   statCard, stepper, empty, listItem, toast, modal, confirmModal, readForm, viewCert, nav, rerender, expose, getDoc, deleteDoc,
-  fmtDateTime, audit, accredit, currentStaff, printDoc, confirmPayment,
+  fmtDateTime, audit, accredit, currentStaff, printDoc, confirmPayment, eventByName, ticketPrice, priceLabel,
 } from './ui.js';
 
 const crumb = (href, label, current) => `<li class="breadcrumb-item"><a href="#/app/${href}">${label}</a></li><li class="breadcrumb-item active">${esc(current)}</li>`;
@@ -433,7 +433,7 @@ async function reviewPayment(ref) {
   if (url) el.addEventListener('hidden.bs.modal', () => URL.revokeObjectURL(url));
   el.querySelector('[data-confirm]')?.addEventListener('click', () => {
     group.forEach(confirmPayment); audit(p0.app || p0.memberId || 'Payments', 'Bank transfer confirmed', `${K(total)} · ref ${p0.bankRef} · ${group.map(x => x.ref).join(', ')}`);
-    commit(); el.close(); toast(p0.app ? 'Payment confirmed. Accreditation issued automatically' : 'Payment confirmed. Receipt sent'); rerender();
+    commit(); el.close(); toast(p0.app ? 'Payment confirmed. Accreditation issued automatically' : p0.event ? 'Payment confirmed. Registration confirmed' : 'Payment confirmed. Receipt sent'); rerender();
   });
   el.querySelector('[data-reject]')?.addEventListener('click', () => { el.close(); setTimeout(() => confirmModal({
     title: 'Reject proof of payment', confirmText: 'Reject', tone: 'danger',
@@ -442,7 +442,12 @@ async function reviewPayment(ref) {
       const v = readForm(m); if (!v) return false;
       group.forEach(x => { x.status = 'failed'; x.note = v.reason; });
       if (p0.app) appById(p0.app).paymentPending = null;
-      if (p0.memberId) memberById(p0.memberId).duesPending = null;
+      if (p0.dues) memberById(p0.memberId).duesPending = null;
+      if (p0.event) {
+        const at = S.registered.findIndex(r => r.event === p0.event && r.member === p0.memberId && r.status === 'pending');
+        const e = eventByName(p0.event);
+        if (at >= 0) { if (e) e.reg = Math.max(0, e.reg - (S.registered[at].tickets || 1)); S.registered.splice(at, 1); }
+      }
       audit(p0.app || p0.memberId || 'Payments', 'Proof of payment rejected', `${v.reason} · ref ${p0.bankRef}`); commit(); toast('Proof of payment rejected'); rerender();
     },
   }), 350); });
@@ -496,11 +501,15 @@ function broadcast(preset) {
 }
 
 /* ================= EVENTS ================= */
+const eventRegs = e => S.registered.filter(r => r.event === e.name);
+const eventRevenue = e => eventRegs(e).filter(r => r.status === 'confirmed').reduce((n, r) => n + (r.amt || 0), 0);
+const regBadge = s => s === 'pending' ? '<span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">Payment pending</span>' : '<span class="badge rounded-pill bg-success-subtle text-success-emphasis border border-success-subtle">Confirmed</span>';
 function events() {
   return pageHeader('Events', 'AGMs, trainings and webinars for members', `<button class="btn btn-primary" onclick="newEvent()">${icon('plus-lg', 'me-1')} New event</button>`)
     + `<div class="row g-3">${S.events.map((e, i) => { const pct = Math.min(100, Math.round(e.reg / e.cap * 100)); return `<div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body d-flex flex-column">
       <div class="d-flex justify-content-between mb-2"><span class="badge bg-info-subtle text-info-emphasis">${esc(e.type)}</span><span class="small text-body-secondary">${fmtDate(e.date)}</span></div>
-      <h2 class="h6 fw-semibold mb-1">${esc(e.name)}</h2><div class="small text-body-secondary mb-3">${icon('geo-alt', 'me-1')}${esc(e.town)}</div>
+      <h2 class="h6 fw-semibold mb-1">${esc(e.name)}</h2><div class="small text-body-secondary mb-2">${icon('geo-alt', 'me-1')}${esc(e.town)}</div>
+      <div class="d-flex justify-content-between small mb-3"><span class="fw-semibold">${icon('ticket-perforated', 'me-1 text-primary')}${priceLabel(e)}</span>${ticketPrice(e) ? `<span class="text-body-secondary">${K(eventRevenue(e))} collected</span>` : ''}</div>
       <div class="mt-auto"><div class="d-flex justify-content-between small mb-1"><span>${e.reg} / ${e.cap} registered</span><span class="text-body-secondary">${pct}%</span></div>
       <div class="progress mb-3" style="height:6px"><div class="progress-bar" style="width:${pct}%"></div></div>
       <button class="btn btn-outline-secondary btn-sm w-100" onclick="manageEvent(${i})">Manage</button></div>
@@ -512,26 +521,46 @@ function newEvent() {
     body: `<div class="row g-3"><div class="col-12"><label class="form-label small fw-medium">Event name</label><input class="form-control" name="name" required></div>
       <div class="col-md-6"><label class="form-label small fw-medium">Date</label><input class="form-control" type="date" name="date" required></div>
       <div class="col-md-6"><label class="form-label small fw-medium">Type</label><select class="form-select" name="type"><option>Training</option><option>Webinar</option><option>AGM</option><option>Networking</option></select></div>
-      <div class="col-md-8"><label class="form-label small fw-medium">Venue</label><input class="form-control" name="town" required></div>
-      <div class="col-md-4"><label class="form-label small fw-medium">Capacity</label><input class="form-control" type="number" name="cap" min="1" value="100" required></div></div>`,
+      <div class="col-12"><label class="form-label small fw-medium">Venue</label><input class="form-control" name="town" required></div>
+      <div class="col-md-6"><label class="form-label small fw-medium">Capacity</label><input class="form-control" type="number" name="cap" min="1" value="100" required></div>
+      <div class="col-md-6"><label class="form-label small fw-medium">Price per ticket (K)</label><input class="form-control" type="number" name="price" min="0" step="1" value="0" required><div class="form-text">Use 0 for a free event.</div></div></div>`,
     onConfirm: el => {
       const v = readForm(el); if (!v) return false;
-      S.events.push({ name: v.name, date: v.date, town: v.town, type: v.type, reg: 0, cap: Math.max(1, +v.cap) });
-      audit('Events', 'Event created', `${v.name} · ${fmtDate(v.date)}`);
+      if (eventByName(v.name)) { el.querySelector('[name=name]').classList.add('is-invalid'); toast('An event with this name already exists', 'error'); return false; }
+      S.events.push({ name: v.name, date: v.date, town: v.town, type: v.type, reg: 0, cap: Math.max(1, +v.cap), price: Math.max(0, Math.round(+v.price)) });
+      audit('Events', 'Event created', `${v.name} · ${fmtDate(v.date)} · ${+v.price ? `${K(+v.price)} per ticket` : 'free'}`);
       S.events.sort((a, b) => a.date.localeCompare(b.date)); commit(); toast('Event published to members'); rerender();
     },
   });
 }
 function manageEvent(i) {
-  const e = S.events[i];
-  const attendees = S.registered.filter(r => r.event === e.name);
+  const e = S.events[i], regs = eventRegs(e), paid = regs.filter(r => r.amt);
+  const row = (k, v) => `<div class="d-flex justify-content-between py-2 border-bottom"><span class="text-body-secondary">${k}</span><b>${v}</b></div>`;
   const el = modal({
-    title: esc(e.name),
-    body: `<div class="small mb-3"><div class="d-flex justify-content-between py-2 border-bottom"><span class="text-body-secondary">Date</span><b>${fmtDate(e.date)}</b></div><div class="d-flex justify-content-between py-2 border-bottom"><span class="text-body-secondary">Venue</span><b>${esc(e.town)}</b></div><div class="d-flex justify-content-between py-2"><span class="text-body-secondary">Registrations</span><b>${e.reg} / ${e.cap}</b></div></div>
-      <div class="small fw-semibold mb-2">Registered via the portal</div><div class="list-group">${attendees.map(r => `<div class="list-group-item small">${esc(memberById(r.member)?.name || r.member)}</div>`).join('') || '<div class="list-group-item small text-body-secondary">No portal registrations yet.</div>'}</div>`,
+    title: esc(e.name), size: 'lg',
+    body: `<div class="small mb-3">${row('Date', fmtDate(e.date))}${row('Venue', esc(e.town))}${row('Registrations', `${e.reg} / ${e.cap}`)}${row('Revenue collected', K(eventRevenue(e)))}</div>
+      <form class="row g-2 align-items-end mb-4" novalidate data-edit>
+        <div class="col-sm-5"><label class="form-label small fw-medium">Price per ticket (K)</label><input class="form-control" type="number" name="price" min="0" step="1" value="${ticketPrice(e)}" required></div>
+        <div class="col-sm-4"><label class="form-label small fw-medium">Capacity</label><input class="form-control" type="number" name="cap" min="${Math.max(1, e.reg)}" value="${e.cap}" required><div class="invalid-feedback">At least ${Math.max(1, e.reg)}.</div></div>
+        <div class="col-sm-3"><button class="btn btn-outline-primary w-100">Save</button></div>
+        <div class="col-12 form-text">Price changes apply to new registrations only.</div></form>
+      <div class="small fw-semibold mb-2">Registered via the portal</div>
+      <div class="table-responsive"><table class="table table-sm small align-middle mb-0"><thead><tr><th>Member</th><th class="text-end">Tickets</th><th class="text-end">Amount</th><th>Status</th></tr></thead><tbody>
+      ${regs.map(r => `<tr><td>${esc(memberById(r.member)?.name || r.member)}</td><td class="text-end">${r.tickets || 1}</td><td class="text-end">${r.amt ? K(r.amt) : 'Free'}</td><td>${regBadge(r.status)}</td></tr>`).join('') || '<tr><td colspan="4" class="text-body-secondary">No portal registrations yet.</td></tr>'}
+      </tbody></table></div>`,
     footer: `<button class="btn btn-outline-danger me-auto" data-cancel>Cancel event</button><button class="btn btn-light" data-bs-dismiss="modal">Close</button>`,
   });
-  el.querySelector('[data-cancel]').onclick = () => { el.close(); setTimeout(() => confirmModal({ title: 'Cancel event', body: `Cancel <b>${esc(e.name)}</b>? Registered members will be notified.`, confirmText: 'Cancel event', tone: 'danger', onConfirm: () => { S.events.splice(i, 1); commit(); toast('Event cancelled'); rerender(); } }), 300); };
+  el.querySelector('[data-edit]').onsubmit = ev => {
+    ev.preventDefault();
+    const v = readForm(ev.target); if (!v) return;
+    const price = Math.max(0, Math.round(+v.price)), cap = Math.max(1, +v.cap);
+    const changes = [price !== ticketPrice(e) && `price ${K(ticketPrice(e))} → ${K(price)}`, cap !== e.cap && `capacity ${e.cap} → ${cap}`].filter(Boolean);
+    if (!changes.length) return el.close();
+    e.price = price; e.cap = cap; audit('Events', 'Event updated', `${e.name} · ${changes.join(' · ')}`);
+    commit(); el.close(); toast('Event updated'); rerender();
+  };
+  const refundNote = paid.length ? `<div class="alert alert-warning small mt-3 mb-0">${paid.length} paid registration(s) totalling ${K(paid.reduce((n, r) => n + r.amt, 0))} will need refunds.</div>` : '';
+  el.querySelector('[data-cancel]').onclick = () => { el.close(); setTimeout(() => confirmModal({ title: 'Cancel event', body: `Cancel <b>${esc(e.name)}</b>? Registered members will be notified.${refundNote}`, confirmText: 'Cancel event', tone: 'danger', onConfirm: () => { S.events.splice(S.events.indexOf(e), 1); S.registered = S.registered.filter(r => r.event !== e.name); audit('Events', 'Event cancelled', `${e.name}${paid.length ? ` · ${paid.length} paid registration(s) to refund` : ''}`); commit(); toast('Event cancelled'); rerender(); } }), 300); };
 }
 
 /* ================= REPORTS ================= */
@@ -550,9 +579,9 @@ const REPORTS = [
   { key: 'arrears', icon: 'hourglass-split', title: 'Arrears & renewal pipeline', desc: 'Members with dues outstanding, lapsed status or accreditation expiring within 90 days.',
     data: () => ({ cols: ['Member no.', 'Name', 'Tier', 'Status', 'Dues', 'Amount due', 'Valid until', 'Days to expiry'],
       rows: S.members.filter(m => !m.duesPaid || m.status !== 'active' || daysTo(m.expiry) <= 90).map(m => [m.id, m.name, m.tier, m.status, m.duesPaid ? 'Paid' : 'Outstanding', m.duesPaid ? K(0) : K(TIERDUES[m.tier]), fmtDate(m.expiry), daysTo(m.expiry)]) }) },
-  { key: 'events', icon: 'calendar-event', title: 'Event attendance & training', desc: 'Registrations against capacity for AGMs, trainings and webinars.',
-    data: () => ({ cols: ['Event', 'Type', 'Date', 'Venue', 'Registered', 'Capacity', 'Fill rate'],
-      rows: S.events.map(e => [e.name, e.type, fmtDate(e.date), e.town, e.reg, e.cap, `${Math.round(e.reg / e.cap * 100)}%`]) }) },
+  { key: 'events', icon: 'calendar-event', title: 'Event attendance & training', desc: 'Registrations against capacity, ticket prices and revenue for AGMs, trainings and webinars.',
+    data: () => ({ cols: ['Event', 'Type', 'Date', 'Venue', 'Registered', 'Capacity', 'Fill rate', 'Ticket price', 'Revenue'],
+      rows: S.events.map(e => [e.name, e.type, fmtDate(e.date), e.town, e.reg, e.cap, `${Math.round(e.reg / e.cap * 100)}%`, ticketPrice(e) ? K(ticketPrice(e)) : 'Free', K(eventRevenue(e))]) }) },
   { key: 'comms', icon: 'megaphone', title: 'Communications sent', desc: 'Broadcasts sent by email, SMS and portal, with audience and delivery status.',
     data: () => ({ cols: ['Date', 'Subject', 'Audience', 'Channels', 'Status'], rows: S.broadcasts.map(b => [b.date, b.subject, b.audience, b.channels, 'Delivered']) }) },
   { key: 'audit', icon: 'clock-history', title: 'Audit trail of approvals & changes', desc: 'Every recorded decision and change, with user and time.',

@@ -1,7 +1,7 @@
 import {
   S, commit, nextId, esc, K, fmtDate, nowLabel, plusYear, TIERDUES, JOINING_FEE, totals, inGoodStanding, findMember, memberById, appById,
   icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast, payForm, takePayment,
-  setSession, nav, after, expose, empty, saveDoc, accredit, audit, staffFor, STAFF,
+  setSession, nav, after, expose, empty, saveDoc, accredit, audit, staffFor, STAFF, priceLabel,
 } from './ui.js';
 
 /* ================= LAYOUT ================= */
@@ -198,7 +198,7 @@ function home() {
           <div class="list-group">
             ${S.events.slice(0, 4).map(e => { const d = new Date(e.date); return `<div class="list-group-item d-flex gap-3 py-3">
               <div class="text-center border rounded px-2 py-1" style="min-width:56px"><div class="small text-primary fw-semibold text-uppercase">${d.toLocaleString('en-US', { month: 'short' })}</div><div class="h5 mb-0 fw-bold">${d.getDate()}</div></div>
-              <div><div class="fw-medium">${esc(e.name)}</div><div class="small text-body-secondary">${esc(e.type)} · ${esc(e.town)}</div></div></div>`; }).join('')}
+              <div><div class="fw-medium">${esc(e.name)}</div><div class="small text-body-secondary">${esc(e.type)} · ${esc(e.town)} · ${priceLabel(e)}</div></div></div>`; }).join('')}
           </div>
           <p class="small text-body-secondary mt-3">Members register for events from the <a href="#/login/member">member portal</a>.</p>
         </div>

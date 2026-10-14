@@ -1,13 +1,14 @@
 import {
   S, commit, esc, K, fmtDate, nextYear, TIERDUES, JOINING_FEE, memberById, certNo, log, getSession, icon, statusBadge,
   accredBadge, mofBadge, duesBadge, pageHeader, statCard, empty, listItem, toast, readForm, viewCert, payForm, takePayment, rerender, expose, audit,
+  eventByName, ticketPrice, priceLabel, tix, confirmModal,
 } from './ui.js';
 
 const me = () => memberById(getSession()?.memberId);
 
 function overview() {
   const m = me(), nextEv = S.events[0];
-  const isReg = e => S.registered.some(r => r.event === e.name && r.member === m.id);
+  const isReg = e => myReg(e);
   const alerts = [];
   if (m.status !== 'active') alerts.push(`<div class="alert alert-danger d-flex gap-2">${icon('exclamation-octagon')}<div>Your membership is <b>${m.status}</b>. ${m.mof !== 'valid' ? 'Upload a valid Ministry of Finance authorization to restore your accreditation.' : 'Settle outstanding dues to restore your accreditation.'}</div></div>`);
   if (!m.duesNext) alerts.push(`<div class="alert alert-warning d-flex align-items-center gap-2">${icon('info-circle')}<div class="me-auto">${nextYear()} annual dues of ${K(TIERDUES[m.tier])} are now payable.</div><a class="btn btn-sm btn-warning" href="#/app/dues">Pay now</a></div>`);
@@ -27,7 +28,7 @@ function overview() {
         ${listItem('award', 'success', 'Accreditation certificate', certNo(m), m.accred === 'issued' ? `<button class="btn btn-sm btn-outline-secondary" onclick="viewCert('${m.id}')">Download</button>` : '')}
         ${listItem('file-earmark-arrow-up', 'info', 'Renew MoF authorization', `Expires ${fmtDate(m.expiry)}`, '<a class="btn btn-sm btn-outline-secondary" href="#/app/certificates">Upload</a>')}
         ${listItem('credit-card', 'warning', 'Pay annual dues', m.duesNext ? 'Paid — thank you' : `${K(TIERDUES[m.tier])} due`, '<a class="btn btn-sm btn-outline-secondary" href="#/app/dues">Open</a>')}
-        ${nextEv ? listItem('calendar-event', 'primary', esc(nextEv.name), `${fmtDate(nextEv.date)} · ${esc(nextEv.town)}`, `<a class="btn btn-sm btn-outline-secondary" href="#/app/events">${isReg(nextEv) ? 'Registered' : 'Register'}</a>`) : ''}
+        ${nextEv ? listItem('calendar-event', 'primary', esc(nextEv.name), `${fmtDate(nextEv.date)} · ${esc(nextEv.town)}`, `<a class="btn btn-sm btn-outline-secondary" href="${eventHref(nextEv)}">${isReg(nextEv) ? 'Registered' : 'Register'}</a>`) : ''}
       </div></div></div>
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex"><h2 class="h6 mb-0 py-1">Announcements</h2><a class="ms-auto small" href="#/app/announcements">View all</a></div><div class="list-group list-group-flush">
         ${S.announce.slice(0, 4).map(a => listItem('megaphone', 'primary', esc(a.title), fmtDate(a.date))).join('') || empty('No announcements.')}
@@ -100,23 +101,97 @@ function payDues() {
   });
 }
 
-function events() {
-  const m = me();
+const MAX_TICKETS = 10;
+const myReg = e => S.registered.find(r => r.event === e.name && r.member === me().id);
+const eventHref = e => `#/app/events/${encodeURIComponent(e.name)}`;
+
+function events(name) {
+  if (name) return eventPage(name);
   return pageHeader('Events', 'Register for MLAZ events')
-    + `<div class="row g-3">${S.events.map((e, i) => {
-      const reg = S.registered.some(r => r.event === e.name && r.member === m.id), full = e.reg >= e.cap;
+    + `<div class="row g-3">${S.events.map(e => {
+      const r = myReg(e), full = e.reg >= e.cap;
       return `<div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body d-flex flex-column">
         <div class="d-flex justify-content-between mb-2"><span class="badge bg-info-subtle text-info-emphasis">${esc(e.type)}</span><span class="small text-body-secondary">${fmtDate(e.date)}</span></div>
-        <h2 class="h6 fw-semibold mb-1">${esc(e.name)}</h2><div class="small text-body-secondary mb-3">${icon('geo-alt', 'me-1')}${esc(e.town)} · ${Math.max(0, e.cap - e.reg)} places left</div>
-        <div class="mt-auto">${reg ? `<div class="d-flex gap-2"><span class="btn btn-sm btn-success-subtle text-success-emphasis bg-success-subtle flex-grow-1 disabled">${icon('check-lg', 'me-1')}Registered</span><button class="btn btn-sm btn-light" onclick="toggleReg(${i})">Cancel</button></div>`
-          : `<button class="btn btn-sm btn-primary w-100" ${full ? 'disabled' : ''} onclick="toggleReg(${i})">${full ? 'Fully booked' : 'Register'}</button>`}</div>
+        <h2 class="h6 fw-semibold mb-1">${esc(e.name)}</h2><div class="small text-body-secondary mb-2">${icon('geo-alt', 'me-1')}${esc(e.town)} · ${Math.max(0, e.cap - e.reg)} places left</div>
+        <div class="small fw-semibold mb-3">${icon('ticket-perforated', 'me-1 text-primary')}${priceLabel(e)}</div>
+        <div class="mt-auto">${r ? `<a class="btn btn-sm w-100 ${r.status === 'pending' ? 'btn-outline-info' : 'btn-outline-success'}" href="${eventHref(e)}">${r.status === 'pending' ? `${icon('hourglass-split', 'me-1')}Payment pending` : `${icon('check-lg', 'me-1')}Registered · ${tix(r.tickets || 1)}`}</a>`
+          : `<a class="btn btn-sm btn-primary w-100 ${full ? 'disabled' : ''}" href="${eventHref(e)}">${full ? 'Fully booked' : 'Register'}</a>`}</div>
       </div></div></div>`; }).join('') || `<div class="col-12">${empty('No upcoming events.', 'calendar')}</div>`}</div>`;
 }
-function toggleReg(i) {
-  const m = me(), e = S.events[i], at = S.registered.findIndex(r => r.event === e.name && r.member === m.id);
-  if (at >= 0) { S.registered.splice(at, 1); e.reg--; toast('Registration cancelled'); }
-  else { if (e.reg >= e.cap) return; S.registered.push({ event: e.name, member: m.id }); e.reg++; toast('Registered. Confirmation sent to ' + m.email); }
-  commit(); rerender();
+function eventPage(name) {
+  const m = me(), e = eventByName(name), crumbs = `<li class="breadcrumb-item"><a href="#/app/events">Events</a></li><li class="breadcrumb-item active">${esc(name)}</li>`;
+  if (!e) return pageHeader('Event not found', '', '', crumbs) + empty('This event is no longer available.', 'calendar-x');
+  const i = S.events.indexOf(e), price = ticketPrice(e), left = Math.max(0, e.cap - e.reg), max = Math.min(left, MAX_TICKETS), r = myReg(e);
+  const row = (k, v) => `<div class="d-flex justify-content-between gap-2 py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
+  let panel;
+  if (r) {
+    panel = `<div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Your registration</h2></div><div class="card-body">
+      ${row('Tickets', tix(r.tickets || 1))}${row('Amount', r.amt ? K(r.amt) : 'Free')}
+      ${r.status === 'pending' ? `<div class="alert alert-info small d-flex gap-2 mt-3 mb-0">${icon('hourglass-split')}<div>Your bank transfer for ${K(r.amt)} is awaiting confirmation by MLAZ Finance, usually within 1 working day. Your places are held until then.</div></div>`
+        : `<div class="alert alert-success small d-flex gap-2 mt-3">${icon('check-circle')}<div>You’re registered. Confirmation was sent to ${esc(m.email)}.</div></div>
+        <div class="d-flex gap-2">${r.refs?.length ? `<button class="btn btn-outline-secondary flex-grow-1" onclick="viewReceipt('${r.refs[0]}')">${icon('receipt', 'me-1')} Receipt</button>` : ''}
+        ${r.amt ? '' : `<button class="btn btn-light flex-grow-1" onclick="cancelReg(${i})">Cancel registration</button>`}</div>
+        ${r.amt ? `<div class="small text-body-secondary mt-3">${icon('info-circle', 'me-1')}To change or cancel a paid registration, contact the Secretariat.</div>` : ''}`}
+    </div>`;
+  } else if (!left) {
+    panel = `<div class="card-body">${empty('This event is fully booked.', 'calendar-x')}</div>`;
+  } else {
+    panel = `<div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Register</h2></div><div class="card-body">
+      <label class="form-label small fw-medium" for="evqty">Number of tickets</label>
+      <input class="form-control" type="number" id="evqty" min="1" max="${max}" value="1" required oninput="evQty(${price})">
+      <div class="invalid-feedback">Choose between 1 and ${max}.</div>
+      <div class="small text-body-secondary mt-1 mb-3">Up to ${tix(max)} per booking · ${left} places left</div>
+      ${price ? `<div class="d-flex justify-content-between small py-2 border-bottom"><span class="text-body-secondary">${K(price)} × <span data-evn>1</span></span><span data-evtotal>${K(price)}</span></div>
+      <div class="d-flex justify-content-between fw-semibold py-2 mb-3"><span>Total</span><span data-evtotal>${K(price)}</span></div>
+      ${payForm('evpay', { phone: m.phone, reference: m.id })}
+      <button class="btn btn-primary w-100 mt-3" onclick="registerEvent(${i})">Pay <span data-evtotal>${K(price)}</span></button>
+      <div class="small text-body-secondary text-center mt-2">${icon('lock', 'me-1')}Secured payment · receipt emailed automatically</div>`
+      : `<button class="btn btn-primary w-100" onclick="registerEvent(${i})">Register</button>`}
+    </div>`;
+  }
+  return pageHeader(esc(e.name), `${esc(e.type)} · ${fmtDate(e.date)}`, '', crumbs)
+    + `<div class="row g-3"><div class="col-lg-5"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Event details</h2></div><div class="card-body">
+      ${row('Date', fmtDate(e.date))}${row('Venue', esc(e.town))}${row('Type', esc(e.type))}${row('Ticket price', price ? K(price) : 'Free')}${row('Places left', `${left} of ${e.cap}`)}
+    </div></div></div><div class="col-lg-7"><div class="card">${panel}</div></div></div>`;
+}
+function evQty(price) {
+  const n = Math.max(0, parseInt(document.getElementById('evqty').value, 10) || 0);
+  document.querySelectorAll('[data-evn]').forEach(x => { x.textContent = n; });
+  document.querySelectorAll('[data-evtotal]').forEach(x => { x.textContent = K(n * price); });
+}
+function registerEvent(i) {
+  const m = me(), e = S.events[i], price = ticketPrice(e), qty = document.getElementById('evqty');
+  const n = Number(qty.value), max = Math.min(e.cap - e.reg, MAX_TICKETS), bad = !(Number.isInteger(n) && n >= 1 && n <= max);
+  qty.classList.toggle('is-invalid', bad); if (bad) return;
+  const add = (status, refs) => { S.registered.push({ event: e.name, member: m.id, tickets: n, amt: n * price, status, refs, at: new Date().toISOString() }); e.reg += n; };
+  if (!price) {
+    add('confirmed'); log(m.id, 'calendar-check', 'primary', `Registered for ${e.name}`, tix(n));
+    audit(m.id, 'Event registration', `${e.name} · ${tix(n)}`, `${m.contact} (member)`);
+    commit(); toast(`Registered for ${tix(n)}. Confirmation sent to ${m.email}`); return rerender();
+  }
+  takePayment('evpay', {
+    payer: m.name, description: `${e.name} · ${tix(n)}`, link: { memberId: m.id, event: e.name },
+    items: [{ type: `Event: ${e.name} (${n} × ${K(price)})`, amt: n * price }],
+    onDone: ({ refs, pending, method, detail }) => {
+      if (pending) { add('pending', refs); audit(m.id, 'Proof of payment submitted', `${e.name} · ${tix(n)} · ${K(n * price)} · bank transfer · ref ${detail}`, `${m.contact} (member)`); }
+      else {
+        add('confirmed', refs); log(m.id, 'calendar-check', 'primary', `Registered for ${e.name}`, `${tix(n)} · ${K(n * price)} · ${method}`);
+        audit(m.id, 'Event tickets paid online', `${e.name} · ${tix(n)} · ${K(n * price)} · ${method} · ${refs[0]}`, `${m.contact} (member)`);
+      }
+      setTimeout(rerender, 50);
+    },
+  });
+}
+function cancelReg(i) {
+  const m = me(), e = S.events[i];
+  confirmModal({
+    title: 'Cancel registration', body: `Cancel your registration for <b>${esc(e.name)}</b>?`, confirmText: 'Cancel registration', tone: 'danger',
+    onConfirm: () => {
+      const at = S.registered.findIndex(r => r.event === e.name && r.member === m.id); if (at < 0) return;
+      e.reg = Math.max(0, e.reg - (S.registered[at].tickets || 1)); S.registered.splice(at, 1);
+      audit(m.id, 'Event registration cancelled', e.name, `${m.contact} (member)`); commit(); toast('Registration cancelled'); rerender();
+    },
+  });
 }
 
 function announcements() {
@@ -147,4 +222,4 @@ export const MEMBER_NAV = [
 ];
 export const MEMBER_PAGES = { overview, certificates, dues, events, announcements, profile };
 export const currentMember = me;
-expose({ uploadRenewal, payDues, toggleReg, saveProfile });
+expose({ uploadRenewal, payDues, evQty, registerEvent, cancelReg, saveProfile });

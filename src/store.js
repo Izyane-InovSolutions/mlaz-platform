@@ -38,9 +38,9 @@ const seed = () => ({
     { ref: 'PAY-7785', member: 'ZedFunds Money Lenders', type: 'Annual dues (Silver)', amt: 3000, method: 'MTN MoMo', date: 'Yesterday', status: 'failed' },
   ],
   events: [
-    { name: 'Responsible Lending & BoZ Compliance Workshop', date: '2026-10-28', town: 'Kitwe', type: 'Training', reg: 64, cap: 80 },
-    { name: 'Digital Lending & Credit Scoring Briefing', date: '2026-11-05', town: 'Online', type: 'Webinar', reg: 210, cap: 500 },
-    { name: 'MLAZ Annual General Meeting 2026', date: '2026-11-20', town: 'Lusaka — Mulungushi', type: 'AGM', reg: 142, cap: 200 },
+    { name: 'Responsible Lending & BoZ Compliance Workshop', date: '2026-10-28', town: 'Kitwe', type: 'Training', reg: 64, cap: 80, price: 0 },
+    { name: 'Digital Lending & Credit Scoring Briefing', date: '2026-11-05', town: 'Online', type: 'Webinar', reg: 210, cap: 500, price: 250 },
+    { name: 'MLAZ Annual General Meeting 2026', date: '2026-11-20', town: 'Lusaka — Mulungushi', type: 'AGM', reg: 142, cap: 200, price: 500 },
   ],
   announce: [
     { title: '2027 membership renewals now open', date: '2026-09-28', tag: 'Renewals', body: 'Renew before 31 Dec to keep your accreditation active and your listing in the public directory.' },
@@ -64,7 +64,12 @@ const seed = () => ({
 export function load() {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...seed(), ...JSON.parse(raw) };
+    if (raw) {
+      const state = { ...seed(), ...JSON.parse(raw) };
+      // Data saved before event ticketing has no prices: take them from the seed.
+      seed().events.forEach(d => { const e = state.events.find(x => x.name === d.name); if (e && e.price === undefined) e.price = d.price; });
+      return state;
+    }
   } catch (e) { /* storage blocked or corrupt — fall back to seed */ }
   return seed();
 }

@@ -32,6 +32,10 @@ export const avatar = (name, i, lg) => `<span class="avatar ${lg ? 'lg' : ''}" s
 /* ================= DOMAIN ================= */
 export const memberById = id => S.members.find(m => m.id === id);
 export const appById = id => S.apps.find(a => a.id === id);
+export const eventByName = name => S.events.find(e => e.name === name);
+export const ticketPrice = e => +e.price || 0;
+export const priceLabel = e => ticketPrice(e) ? `${K(ticketPrice(e))} per ticket` : 'Free';
+export const tix = n => `${n} ticket${n === 1 ? '' : 's'}`;
 export const inGoodStanding = m => m.status === 'active' && m.accred === 'issued';
 export const certNo = m => `MLAZ/ACC/${m.id.split('-')[1]}/${String(new Date(m.expiry).getFullYear() - 1).slice(2)}`;
 export const log = (memberId, icon, tone, title, sub) => { const m = memberById(memberId); if (m) (m.activity ||= []).unshift({ icon, tone, title, sub }); };
@@ -264,6 +268,10 @@ export function confirmPayment(p) {
   if (p.dues) {
     const m = memberById(p.memberId);
     if (m) { m.duesNext = m.duesPaid = true; m.duesPending = null; log(m.id, 'credit-card', 'warning', `${p.dues} dues paid`, `${K(p.amt)} · ${p.method}`); audit(m.id, 'Dues payment confirmed', `${K(p.amt)} · ${p.method}${p.bankRef ? ` · ${p.bankRef}` : ''}`); }
+  }
+  if (p.event) {
+    const r = S.registered.find(x => x.event === p.event && x.member === p.memberId);
+    if (r && r.status !== 'confirmed') { r.status = 'confirmed'; log(p.memberId, 'calendar-check', 'primary', `Registered for ${p.event}`, `${tix(r.tickets)} · ${K(p.amt)} · ${p.method}`); audit(p.memberId, 'Event payment confirmed', `${p.event} · ${tix(r.tickets)} · ${K(p.amt)}${p.bankRef ? ` · ${p.bankRef}` : ''}`); }
   }
 }
 export function payFlow({ amount, description, method, account, onSuccess }) {
