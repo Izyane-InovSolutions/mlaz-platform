@@ -58,7 +58,15 @@ const seed = () => ({
     { at: ago(48), by: 'L. Daka (applicant)', target: 'APP-2042', action: 'Application submitted', note: 'MoF authorization, PACRA certificate and director NRC uploaded' },
   ],
   registered: [],
-  seq: { member: 427, app: 2044, pay: 7785 },
+  expenses: [
+    { ref: 'EXP-0006', date: '2026-10-12', category: 'Venue booking', description: 'Hotel conference room hire, 1 day', payee: 'Edinburgh Hotel, Kitwe', amt: 9500, method: 'Bank transfer', event: 'Responsible Lending & BoZ Compliance Workshop', by: 'Grace Mwansa (Secretariat Admin)' },
+    { ref: 'EXP-0005', date: '2026-10-10', category: 'Catering', description: 'Lunch and teas for 80 delegates', payee: 'Copper Kitchen Caterers', amt: 12000, method: 'Bank transfer', event: 'Responsible Lending & BoZ Compliance Workshop', by: 'Grace Mwansa (Secretariat Admin)' },
+    { ref: 'EXP-0004', date: '2026-10-06', category: 'Venue booking', description: 'Main hall deposit (50%)', payee: 'Mulungushi International Conference Centre', amt: 25000, method: 'Bank transfer', event: 'MLAZ Annual General Meeting 2026', by: 'Grace Mwansa (Secretariat Admin)' },
+    { ref: 'EXP-0003', date: '2026-10-03', category: 'Software & subscriptions', description: 'Webinar platform licence, 500 attendees', payee: 'Zoom Video Communications', amt: 1850, method: 'Card', event: 'Digital Lending & Credit Scoring Briefing', by: 'Grace Mwansa (Secretariat Admin)' },
+    { ref: 'EXP-0002', date: '2026-10-01', category: 'Office & admin', description: 'Secretariat office rent, October', payee: 'Cairo Road Properties Ltd', amt: 14000, method: 'Bank transfer', event: '', by: 'Grace Mwansa (Secretariat Admin)' },
+    { ref: 'EXP-0001', date: '2026-09-25', category: 'Printing & materials', description: 'Certificates, letterheads and workshop handbooks', payee: 'Lusaka Print House', amt: 4200, method: 'Mobile money', event: '', by: 'Grace Mwansa (Secretariat Admin)' },
+  ],
+  seq: { member: 427, app: 2044, pay: 7785, exp: 6 },
 });
 
 export function load() {
@@ -66,6 +74,7 @@ export function load() {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const state = { ...seed(), ...JSON.parse(raw) };
+      state.seq = { ...seed().seq, ...state.seq };
       // Data saved before event ticketing has no prices: take them from the seed.
       seed().events.forEach(d => { const e = state.events.find(x => x.name === d.name); if (e && e.price === undefined) e.price = d.price; });
       return state;

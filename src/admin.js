@@ -392,13 +392,15 @@ function payments() {
   const t = totals();
   const todays = S.payments.filter(p => p.status === 'success' && p.date.startsWith('Today')).reduce((a, p) => a + p.amt, 0);
   const mm = S.payments.filter(p => /MoMo|Money|Kwacha/.test(p.method)).length;
+  const spent = S.expenses.reduce((n, x) => n + x.amt, 0), spentMonth = S.expenses.filter(x => x.date.startsWith(today().slice(0, 7))).reduce((n, x) => n + x.amt, 0);
   return pageHeader('Payments & dues', 'Joining fees, annual dues and renewals across mobile money, card and bank',
     `<button class="btn btn-outline-secondary" onclick="reconcile()">${icon('arrow-repeat', 'me-1')} Reconcile</button><button class="btn btn-primary" onclick="broadcast('dues')">${icon('envelope', 'me-1')} Send dues reminders</button>`)
-    + `<div class="row g-3 mb-4">
-      <div class="col-sm-6 col-xl-3">${statCard('Collected (YTD)', KM(t.collected), '82% collection rate', 'cash-stack', 'primary')}</div>
-      <div class="col-sm-6 col-xl-3">${statCard('Collected today', K(todays), `${S.payments.filter(p => p.date.startsWith('Today')).length} transactions`, 'graph-up-arrow', 'success')}</div>
-      <div class="col-sm-6 col-xl-3">${statCard('Dues outstanding', t.outstanding, 'members', 'hourglass-split', 'warning')}</div>
-      <div class="col-sm-6 col-xl-3">${statCard('Via mobile money', Math.round(mm / Math.max(S.payments.length, 1) * 100) + '%', 'of transactions', 'phone', 'info')}</div>
+    + `<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xxl-5 g-3 mb-4">
+      <div class="col">${statCard('Collected (YTD)', KM(t.collected), '82% collection rate', 'cash-stack', 'primary')}</div>
+      <div class="col">${statCard('Collected today', K(todays), `${S.payments.filter(p => p.date.startsWith('Today')).length} transactions`, 'graph-up-arrow', 'success')}</div>
+      <div class="col">${statCard('Dues outstanding', t.outstanding, 'members', 'hourglass-split', 'warning')}</div>
+      <div class="col">${statCard('Via mobile money', Math.round(mm / Math.max(S.payments.length, 1) * 100) + '%', 'of transactions', 'phone', 'info')}</div>
+      <div class="col">${statCard('Total expenses', KM(spent), `${S.expenses.length} recorded · ${K(spentMonth)} this month`, 'wallet2', 'danger')}</div>
     </div>
     <div class="row g-3"><div class="col-xl-8">`
     + tableCard(['Reference', 'Payer', 'Description', 'Method', '#Amount', 'Status', '#'], S.payments.map(p => `<tr><td class="small font-monospace">${p.ref}</td><td><div class="fw-medium">${esc(p.member)}</div><div class="small text-body-secondary">${esc(p.date)}</div></td><td class="small">${esc(p.type)}</td><td class="small">${esc(p.method)}</td><td class="text-end fw-medium">${K(p.amt)}</td><td>${payBadge(p.status)}</td>
@@ -407,7 +409,51 @@ function payments() {
       ${['Gold', 'Silver', 'Bronze'].map(k => `<div class="d-flex justify-content-between py-2 border-bottom"><span>${k} <span class="text-body-secondary">(${t.tiers[k]} members)</span></span><b>${K(TIERDUES[k])} / yr</b></div>`).join('')}
       <div class="d-flex justify-content-between py-2"><span>Joining fee</span><b>${K(JOINING_FEE)} once</b></div>
       <div class="alert alert-light border mt-3 mb-0">${icon('phone', 'me-1 text-primary')} Members pay by MTN, Airtel or Zamtel mobile money, iZyane Pay QR, card or bank transfer. Receipts are issued automatically.</div>
-    </div></div></div></div>`;
+    </div></div>
+    <div class="card mt-3"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2><button class="btn btn-sm btn-primary" onclick="addExpense()">${icon('plus-lg', 'me-1')} Add expense</button></div>
+      <div class="table-responsive" style="max-height:520px"><table class="table table-sm table-hover align-middle small mb-0"><thead class="sticky-top"><tr><th>Expense</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
+      ${S.expenses.map(x => `<tr><td><div class="fw-medium">${esc(x.description)}</div><div class="text-body-secondary">${esc(x.category)} · ${esc(x.payee)} · ${fmtDate(x.date)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event)}</div>` : ''}</td>
+        <td class="text-end fw-medium text-nowrap">${K(x.amt)}</td><td class="text-end"><button class="btn btn-sm btn-light" title="Details" onclick="viewExpense('${x.ref}')">${icon('three-dots')}</button></td></tr>`).join('') || `<tr><td colspan="3">${empty('No expenses recorded.', 'wallet2')}</td></tr>`}
+      </tbody>${S.expenses.length ? `<tfoot><tr class="fw-semibold"><td>Total</td><td class="text-end text-nowrap">${K(spent)}</td><td></td></tr></tfoot>` : ''}</table></div></div>
+    </div></div>`;
+}
+const EXPENSE_CATEGORIES = ['Venue booking', 'Catering', 'Printing & materials', 'Travel & transport', 'Speaker & facilitator fees', 'Software & subscriptions', 'Office & admin', 'Marketing', 'Other'];
+const EXPENSE_METHODS = ['Bank transfer', 'Mobile money', 'Card', 'Cash'];
+function addExpense() {
+  const opts = (list, sel) => list.map(o => `<option ${o === sel ? 'selected' : ''}>${esc(o)}</option>`).join('');
+  confirmModal({
+    title: 'Add expense', confirmText: 'Add expense',
+    body: `<div class="row g-3">
+      <div class="col-md-6"><label class="form-label small fw-medium">Category</label><select class="form-select" name="category">${opts(EXPENSE_CATEGORIES)}</select></div>
+      <div class="col-md-6"><label class="form-label small fw-medium">Date paid</label><input class="form-control" type="date" name="date" value="${today()}" max="${today()}" required></div>
+      <div class="col-12"><label class="form-label small fw-medium">Description</label><input class="form-control" name="description" required placeholder="e.g. Conference room hire, 1 day"><div class="invalid-feedback">Required.</div></div>
+      <div class="col-12"><label class="form-label small fw-medium">Paid to</label><input class="form-control" name="payee" required placeholder="Supplier or person"><div class="invalid-feedback">Required.</div></div>
+      <div class="col-md-6"><label class="form-label small fw-medium">Amount (K)</label><input class="form-control" type="number" name="amt" min="1" step="0.01" required><div class="invalid-feedback">Enter an amount above zero.</div></div>
+      <div class="col-md-6"><label class="form-label small fw-medium">Payment method</label><select class="form-select" name="method">${opts(EXPENSE_METHODS)}</select></div>
+      <div class="col-12"><label class="form-label small fw-medium">Event <span class="text-body-secondary fw-normal">(optional)</span></label><select class="form-select" name="event"><option value="">Not linked to an event</option>${S.events.map(e => `<option value="${esc(e.name)}">${esc(e.name)}</option>`).join('')}</select></div>
+    </div>`,
+    onConfirm: el => {
+      const v = readForm(el); if (!v) return false;
+      const st = currentStaff(), ref = nextId('exp', 'EXP-'), amt = Math.round(+v.amt * 100) / 100;
+      S.expenses.unshift({ ref, date: v.date, category: v.category, description: v.description, payee: v.payee, amt, method: v.method, event: v.event, by: st ? `${st.name} (${st.title})` : 'Secretariat' });
+      S.expenses.sort((a, b) => b.date.localeCompare(a.date) || b.ref.localeCompare(a.ref));
+      audit('Expenses', 'Expense recorded', `${ref} · ${v.category} · ${v.payee} · ${K(amt)}${v.event ? ` · ${v.event}` : ''}`);
+      commit(); toast('Expense added'); rerender();
+    },
+  });
+}
+function viewExpense(ref) {
+  const x = S.expenses.find(e => e.ref === ref);
+  const row = (k, v) => `<div class="d-flex justify-content-between gap-3 py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
+  const el = modal({
+    title: esc(x.description),
+    body: `${row('Reference', `<span class="font-monospace">${x.ref}</span>`)}${row('Category', esc(x.category))}${row('Paid to', esc(x.payee))}${row('Amount', K(x.amt))}${row('Date paid', fmtDate(x.date))}${row('Method', esc(x.method))}${row('Event', x.event ? esc(x.event) : '—')}${row('Recorded by', esc(x.by))}`,
+    footer: `<button class="btn btn-outline-danger me-auto" data-delete>Delete</button><button class="btn btn-light" data-bs-dismiss="modal">Close</button>`,
+  });
+  el.querySelector('[data-delete]').onclick = () => { el.close(); setTimeout(() => confirmModal({
+    title: 'Delete expense', body: `Delete <b>${esc(x.description)}</b> (${K(x.amt)})? This is recorded in the audit trail.`, confirmText: 'Delete', tone: 'danger',
+    onConfirm: () => { S.expenses.splice(S.expenses.indexOf(x), 1); audit('Expenses', 'Expense deleted', `${x.ref} · ${x.category} · ${x.payee} · ${K(x.amt)}`); commit(); toast('Expense deleted'); rerender(); },
+  }), 300); };
 }
 function reconcile() {
   const pend = S.payments.filter(p => p.status === 'pending'); pend.forEach(confirmPayment);
@@ -655,4 +701,4 @@ export const ADMIN_NAV = [
   ['Configure', [['settings', 'Settings', 'gear']]],
 ];
 export const ADMIN_PAGES = { dashboard, reports, members, applications, certificates, payments, communications, events, directory, settings };
-expose({ exportMembers, setMFilter, sendReminder, setStatus, recordDues, verifyRenewal, viewDoc, recommendApp, approveApp, declineRecommendation, rejectMof, recordAppPayment, reconcile, retryPayment, removeAnnouncement, broadcast, newEvent, manageEvent, viewReport, exportReport, reviewPayment });
+expose({ exportMembers, setMFilter, sendReminder, setStatus, recordDues, verifyRenewal, viewDoc, recommendApp, approveApp, declineRecommendation, rejectMof, recordAppPayment, reconcile, retryPayment, addExpense, viewExpense, removeAnnouncement, broadcast, newEvent, manageEvent, viewReport, exportReport, reviewPayment });
