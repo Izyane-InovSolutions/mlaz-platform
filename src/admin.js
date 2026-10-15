@@ -405,16 +405,16 @@ function payments() {
     <div class="row g-3"><div class="col-xl-8">`
     + tableCard(['Reference', 'Payer', 'Description', 'Method', '#Amount', 'Status', '#'], S.payments.map(p => `<tr><td class="small font-monospace">${p.ref}</td><td><div class="fw-medium">${esc(p.member)}</div><div class="small text-body-secondary">${esc(p.date)}</div></td><td class="small">${esc(p.type)}</td><td class="small">${esc(p.method)}</td><td class="text-end fw-medium">${K(p.amt)}</td><td>${payBadge(p.status)}</td>
       <td class="text-end">${p.status === 'pending' && p.popKey ? `<button class="btn btn-sm btn-outline-primary text-nowrap" onclick="reviewPayment('${p.ref}')">Review PoP</button>` : p.status === 'failed' && !p.popKey ? `<button class="btn btn-sm btn-outline-secondary" onclick="retryPayment('${p.ref}')">Retry</button>` : p.status === 'success' ? `<button class="btn btn-sm btn-light" title="Receipt" onclick="viewReceipt('${p.ref}')">${icon('receipt')}</button>` : ''}</td></tr>`).join(''), 'No payments yet.')
-    + `</div><div class="col-xl-4"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Fee schedule</h2></div><div class="card-body small">
-      ${['Gold', 'Silver', 'Bronze'].map(k => `<div class="d-flex justify-content-between py-2 border-bottom"><span>${k} <span class="text-body-secondary">(${t.tiers[k]} members)</span></span><b>${K(TIERDUES[k])} / yr</b></div>`).join('')}
-      <div class="d-flex justify-content-between py-2"><span>Joining fee</span><b>${K(JOINING_FEE)} once</b></div>
-      <div class="alert alert-light border mt-3 mb-0">${icon('phone', 'me-1 text-primary')} Members pay by MTN, Airtel or Zamtel mobile money, iZyane Pay QR, card or bank transfer. Receipts are issued automatically.</div>
-    </div></div>
-    <div class="card mt-3"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2><button class="btn btn-sm btn-primary" onclick="addExpense()">${icon('plus-lg', 'me-1')} Add expense</button></div>
+    + `</div><div class="col-xl-4"><div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2><button class="btn btn-sm btn-primary" onclick="addExpense()">${icon('plus-lg', 'me-1')} Add expense</button></div>
       <div class="table-responsive" style="max-height:520px"><table class="table table-sm table-hover align-middle small mb-0"><thead class="sticky-top"><tr><th>Expense</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
       ${S.expenses.map(x => `<tr><td><div class="fw-medium">${esc(x.description)}</div><div class="text-body-secondary">${esc(x.category)} · ${esc(x.payee)} · ${fmtDate(x.date)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event)}</div>` : ''}</td>
         <td class="text-end fw-medium text-nowrap">${K(x.amt)}</td><td class="text-end"><button class="btn btn-sm btn-light" title="Details" onclick="viewExpense('${x.ref}')">${icon('three-dots')}</button></td></tr>`).join('') || `<tr><td colspan="3">${empty('No expenses recorded.', 'wallet2')}</td></tr>`}
       </tbody>${S.expenses.length ? `<tfoot><tr class="fw-semibold"><td>Total</td><td class="text-end text-nowrap">${K(spent)}</td><td></td></tr></tfoot>` : ''}</table></div></div>
+    <div class="card mt-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Fee schedule</h2></div><div class="card-body small">
+      ${['Gold', 'Silver', 'Bronze'].map(k => `<div class="d-flex justify-content-between py-2 border-bottom"><span>${k} <span class="text-body-secondary">(${t.tiers[k]} members)</span></span><b>${K(TIERDUES[k])} / yr</b></div>`).join('')}
+      <div class="d-flex justify-content-between py-2"><span>Joining fee</span><b>${K(JOINING_FEE)} once</b></div>
+      <div class="alert alert-light border mt-3 mb-0">${icon('phone', 'me-1 text-primary')} Members pay by MTN, Airtel or Zamtel mobile money, iZyane Pay QR, card or bank transfer. Receipts are issued automatically.</div>
+    </div></div>
     </div></div>`;
 }
 const EXPENSE_CATEGORIES = ['Venue booking', 'Catering', 'Printing & materials', 'Travel & transport', 'Speaker & facilitator fees', 'Software & subscriptions', 'Office & admin', 'Marketing', 'Other'];
