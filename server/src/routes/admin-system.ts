@@ -18,6 +18,18 @@ const STAFF_ROLES = ['ADMIN', 'MEMBERSHIP_OFFICER', 'FINANCE_OFFICER', 'COMMS_OF
 export default async function adminSystemRoutes(app: FastifyInstance) {
   app.get('/dashboard', { preHandler: requireStaff('dashboard:view') }, async req => overview(userOf(req)));
 
+  /** Small counts for the console's sidebar badges, fetched on every page, so kept to cheap count queries. */
+  app.get('/nav-counts', { preHandler: requireStaff() }, async () => {
+    const [openApplications, mofReview, renewals, awaitingApproval, bankTransfers] = await Promise.all([
+      prisma.application.count({ where: { stage: { in: ['DETAILS', 'MOF_REVIEW', 'PAYMENT_PENDING'] } } }),
+      prisma.application.count({ where: { stage: 'MOF_REVIEW', recommendedById: null } }),
+      prisma.mofRenewal.count({ where: { status: 'PENDING' } }),
+      prisma.application.count({ where: { stage: 'MOF_REVIEW', recommendedById: { not: null } } }),
+      prisma.payment.count({ where: { status: 'PENDING', method: 'BANK_TRANSFER', documents: { some: {} } } }),
+    ]);
+    return { openApplications, mofToVerify: mofReview + renewals, awaitingApproval, bankTransfers };
+  });
+
   /** Console search box: members and applications by name, number or town. */
   app.get('/search', { preHandler: requireStaff() }, async req => {
     const q = parse(z.object({ q: z.string().trim().min(2).max(100) }), req.query).q;

@@ -98,7 +98,7 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 `GET /documents/:id` · `GET|POST /loans` · `PATCH|DELETE /loans/:id` · `GET|POST /credit-checks` `{nrc, purpose, consent: true}`
 
 **Secretariat** `/api/admin` (staff token; each route checks a permission, see `src/lib/rbac.ts`):
-- `GET /dashboard` · `GET /search?q=` · `GET /documents/:id`
+- `GET /dashboard` · `GET /nav-counts` (sidebar badges) · `GET /search?q=` · `GET /documents/:id`
 - Members: `GET /members` (filters `q, status, tier, province, filter=good_standing|dues_due|mof_expired`) · `GET /members/export.csv` ·
   `GET|PATCH /members/:number` · `POST /members/:number/suspend|reinstate|reminders|offline-dues|users` · `GET /members/:number/certificate.pdf`
 - `GET /renewals?status=` · `POST /renewals/:id/verify` `{mofExpiry}` · `POST /renewals/:id/reject` · `GET /certificates`
@@ -109,7 +109,7 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 - Expenses: `GET /expenses/categories` · `GET|POST /expenses` · `GET|DELETE /expenses/:ref`
 - Events: `GET /events?past=` · `POST /events` · `GET|PATCH /events/:id` · `POST /events/:id/cancel`
 - Comms: `GET|POST /announcements` · `DELETE /announcements/:id` · `GET|POST /broadcasts` `{subject, body, audience, channels}` ·
-  `GET /broadcasts/audiences` · `GET|POST /resources` (multipart) · `DELETE /resources/:id`
+  `GET /broadcasts/audiences` · `GET|POST /resources` (multipart) · `GET /resources/:id/download` · `DELETE /resources/:id`
 - `GET /reports` · `GET /reports/:key?format=json|csv&from=&to=` · `GET /audit?target=&q=`
 - Settings: `GET /settings` · `PUT /settings/tiers/:name` · `PUT /settings/fees` · `PUT /settings/bank-account`
 - Staff: `GET|POST /staff` · `PATCH /staff/:id` · `POST /staff/:id/resend-invite`
@@ -117,6 +117,10 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 **Webhooks** `POST /api/webhooks/payments/:provider` (signature-checked raw body). **Health** `GET /health`.
 
 ## Connecting the UI
+
+**Done:** the public website, sign-in, set-password pages and the Secretariat console (`src/admin.js`) use the API
+through `src/api.js` and `src/checkout.js`.
+**Next:** the member portal (`src/member.js`), which still reads demo data.
 
 The prototype keeps state in `localStorage` (`src/store.js`) and reads it synchronously from every page. To integrate:
 

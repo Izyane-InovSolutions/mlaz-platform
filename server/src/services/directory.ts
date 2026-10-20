@@ -25,13 +25,13 @@ export async function verify(q: string) {
   return { query, results: byName.map(publicView) };
 }
 
-export async function directory(q: { q?: string; province?: string; tier?: string; page: number; pageSize: number }) {
+export async function directory(q: { q?: string; province?: string; tier?: string; sort?: 'name' | 'recent'; page: number; pageSize: number }) {
   const where: P.MemberWhereInput = { ...goodStandingWhere() };
   if (q.q) where.OR = [{ name: { contains: q.q, mode: 'insensitive' } }, { town: { contains: q.q, mode: 'insensitive' } }, { number: { contains: q.q, mode: 'insensitive' } }];
   if (q.province) where.province = q.province;
   if (q.tier) where.tierName = q.tier;
   const [rows, total] = await Promise.all([
-    prisma.member.findMany({ where, orderBy: { name: 'asc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+    prisma.member.findMany({ where, orderBy: q.sort === 'recent' ? [{ joinedAt: 'desc' }, { number: 'desc' }] : { name: 'asc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
     prisma.member.count({ where }),
   ]);
   return { items: rows.map(m => ({ number: m.number, name: m.name, town: m.town, province: m.province, tier: m.tierName, validUntil: m.validUntil })), total, page: q.page, pageSize: q.pageSize };

@@ -37,7 +37,7 @@ export default async function publicRoutes(app: FastifyInstance) {
   /* ---------- lender verification & directory ---------- */
   app.get('/verify', rateLimit(30, '1 minute'), async req => verify(parse(z.object({ q: z.string().max(100) }), req.query).q));
   app.get('/directory', rateLimit(60, '1 minute'), async req =>
-    directory(parse(s.page.extend({ q: z.string().trim().max(100).optional(), province: z.enum(PROVINCES).optional(), tier: z.string().max(40).optional() }), req.query)));
+    directory(parse(s.page.extend({ q: z.string().trim().max(100).optional(), province: z.enum(PROVINCES).optional(), tier: z.string().max(40).optional(), sort: z.enum(['name', 'recent']).optional() }), req.query)));
 
   /* ---------- membership applications ---------- */
   app.post('/applications', rateLimit(10, '1 hour'), async (req, reply) => {

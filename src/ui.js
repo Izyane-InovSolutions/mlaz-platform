@@ -51,7 +51,12 @@ export const STAFF = {
   'officer@mlaz.org.zm': { name: 'John Phiri', title: 'Membership Officer' },
 };
 export const staffFor = email => STAFF[email] || { name: email.split('@')[0], title: 'Secretariat staff' };
-export const currentStaff = () => { const s = getSession(); return s?.role === 'admin' ? { ...staffFor(s.email), email: s.email } : null; };
+export const currentStaff = () => {
+  const s = getSession();
+  if (s?.role !== 'admin') return null;
+  const fallback = staffFor(s.email);
+  return { name: s.name || fallback.name, title: s.title || fallback.title, email: s.email };
+};
 
 /* Audit trail: every decision is recorded with who made it and when. `by` defaults to the signed-in staff member. */
 export function audit(target, action, note = '', by) {
@@ -94,9 +99,17 @@ export function findMember(q) {
 }
 
 /* ================= SESSION & ROUTING ================= */
+// The session (signed-in user plus API tokens) lives in sessionStorage, or in localStorage when "Keep me signed in" is ticked.
 const SKEY = 'mlaz-session';
-export function getSession() { try { return JSON.parse(sessionStorage.getItem(SKEY)); } catch (e) { return null; } }
-export function setSession(s) { try { s ? sessionStorage.setItem(SKEY, JSON.stringify(s)) : sessionStorage.removeItem(SKEY); } catch (e) { /* ignore */ } }
+export function getSession() {
+  try { return JSON.parse(sessionStorage.getItem(SKEY) || localStorage.getItem(SKEY)); } catch (e) { return null; }
+}
+export function setSession(s, remember = s?.remember) {
+  try {
+    sessionStorage.removeItem(SKEY); localStorage.removeItem(SKEY);
+    if (s) (remember ? localStorage : sessionStorage).setItem(SKEY, JSON.stringify(s));
+  } catch (e) { /* storage blocked: the session only lasts until reload */ }
+}
 let renderer = () => {};
 export const setRenderer = f => { renderer = f; };
 export const rerender = () => renderer();
@@ -104,6 +117,14 @@ export const nav = path => { const h = '#/' + path; if (location.hash === h) rer
 const queue = [];
 export const after = fn => queue.push(fn);
 export const flushAfter = () => { while (queue.length) queue.shift()(); };
+export const clearAfter = () => { queue.length = 0; };
+
+/* Disables a button and shows a spinner while an API call runs. */
+export function busy(btn, on, label = 'Please wait…') {
+  if (!btn) return;
+  if (on) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${label}`; }
+  else { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
+}
 export const expose = o => Object.assign(window, o);
 
 /* ================= UI PRIMITIVES ================= */
@@ -117,12 +138,12 @@ export const mofBadge = s => pill(cap(s), s === 'valid' ? 'success' : 'danger');
 export const duesBadge = paid => paid ? pill('Paid', 'success') : pill('Outstanding', 'warning');
 export const STAGES = {
   details: ['Awaiting documents', 'secondary'], mof_review: ['MoF review', 'warning'], mof_approval: ['Awaiting approval', 'primary'],
-  payment_pending: ['Payment pending', 'info'], accredited: ['Accredited', 'success'],
+  payment_pending: ['Payment pending', 'info'], accredited: ['Accredited', 'success'], rejected: ['Not approved', 'danger'],
 };
 export const stageBadge = s => { const [t, tone] = STAGES[s] || ['Unknown', 'secondary']; return pill(t, tone); };
 // Secretariat view: a recommended application is waiting on the checker, not the maker.
 export const appBadge = a => stageBadge(a.stage === 'mof_review' && a.recommendation ? 'mof_approval' : a.stage);
-export const payBadge = s => pill(cap(s), { success: 'success', pending: 'warning', failed: 'danger' }[s]);
+export const payBadge = s => pill(cap(s), { success: 'success', pending: 'warning', failed: 'danger', cancelled: 'secondary' }[s] || 'secondary');
 
 export const pageHeader = (title, sub, actions = '', crumbs = '') => `
   ${crumbs ? `<nav aria-label="breadcrumb"><ol class="breadcrumb small mb-2">${crumbs}</ol></nav>` : ''}
@@ -167,6 +188,8 @@ export function modal({ title, body, footer = '', size = '' }) {
     <div class="modal-body">${body}</div>${footer ? `<div class="modal-footer">${footer}</div>` : ''}</div></div>`;
   document.body.appendChild(el);
   const m = new Modal(el);
+  // Move focus out before Bootstrap sets aria-hidden, so assistive tech never sees a hidden element holding focus.
+  el.addEventListener('hide.bs.modal', () => { if (el.contains(document.activeElement)) document.activeElement.blur(); });
   el.addEventListener('hidden.bs.modal', () => { m.dispose(); el.remove(); });
   m.show();
   el.close = () => m.hide();
@@ -178,6 +201,32 @@ export function closeAllModals() { document.querySelectorAll('.modal.show').forE
 export function confirmModal({ title, body, confirmText = 'Confirm', tone = 'primary', onConfirm }) {
   const el = modal({ title, body, footer: `<button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-${tone}" data-ok>${confirmText}</button>` });
   el.querySelector('[data-ok]').onclick = () => { if (onConfirm(el) !== false) el.close(); };
+  return el;
+}
+
+/**
+ * A form in a modal whose submit calls the API. onSubmit(values, form) runs with the button busy; when it resolves the
+ * modal closes, when it throws the server's message is shown inside the modal so the user can correct and retry.
+ */
+export function asyncModal({ title, body, confirmText = 'Confirm', tone = 'primary', size = '', busyText = 'Saving…', onSubmit }) {
+  const el = modal({
+    title, size,
+    body: `<div data-err></div><form novalidate>${body}</form>`,
+    footer: `<button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-${tone}" data-ok>${confirmText}</button>`,
+  });
+  const form = el.querySelector('form'), ok = el.querySelector('[data-ok]'), err = el.querySelector('[data-err]');
+  const submit = async () => {
+    const v = readForm(form); if (!v) return;
+    err.innerHTML = '';
+    busy(ok, true, busyText);
+    try { await onSubmit(v, form); el.close(); }
+    catch (e) {
+      busy(ok, false);
+      err.innerHTML = `<div class="alert alert-danger small d-flex gap-2">${icon('exclamation-circle')}<div>${esc(e.message)}</div></div>`;
+    }
+  };
+  ok.onclick = submit;
+  form.onsubmit = e => { e.preventDefault(); submit(); };
   return el;
 }
 
@@ -406,4 +455,4 @@ export function resetDemo() {
   });
 }
 
-expose({ nrcMask, digitsOnly, viewCert, viewReceipt, payMethodChange, closeModal, resetDemo, nav });
+expose({ nrcMask, digitsOnly, viewCert, viewReceipt, payMethodChange, closeModal, resetDemo, nav, rerender });

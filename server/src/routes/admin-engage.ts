@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { prisma } from '../lib/db.js';
+import { notFound } from '../lib/errors.js';
 import { actorOf, requireStaff } from '../lib/guards.js';
+import { sendDocument } from './helpers.js';
 import { readMultipart, requireFile, storeFile } from '../lib/uploads.js';
 import { parse, s } from '../lib/validate.js';
 import * as comms from '../services/comms.js';
@@ -34,6 +37,12 @@ export default async function adminEngageRoutes(app: FastifyInstance) {
 
   /* ---------- resource library ---------- */
   app.get('/resources', { preHandler: requireStaff() }, async () => comms.listResources());
+  // Resources are member-facing material, so any staff role may download them (unlike application documents).
+  app.get('/resources/:id/download', { preHandler: requireStaff() }, async (req, reply) => {
+    const r = await prisma.resource.findUnique({ where: { id: (req.params as Id).id }, include: { document: true } });
+    if (!r) throw notFound('Resource');
+    return sendDocument(reply, r.document, true);
+  });
   app.post('/resources', { preHandler: requireStaff('comms:write') }, async (req, reply) => {
     const { fields, files } = await readMultipart(req);
     const v = parse(comms.resourceSchema, fields);
