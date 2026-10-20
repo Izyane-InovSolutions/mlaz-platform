@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import '@fastify/multipart';
 import type { FastifyRequest } from 'fastify';
 import { fileTypeFromBuffer } from 'file-type';
 import type { DocumentKind } from '../generated/prisma/client.js';

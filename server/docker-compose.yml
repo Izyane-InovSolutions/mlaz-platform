@@ -1,4 +1,6 @@
-# Local PostgreSQL for development and tests. Port 5433 avoids clashing with a locally installed Postgres on 5432.
+# Local PostgreSQL for development and tests, on port 5435 to stay clear of other local Postgres instances.
+# The explicit project name keeps this stack separate from other compose projects in folders called "server".
+name: mlaz-platform
 services:
   db:
     image: postgres:17-alpine
@@ -8,7 +10,7 @@ services:
       POSTGRES_PASSWORD: mlaz
       POSTGRES_DB: mlaz
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5435:5432"
     volumes:
       - mlaz-db:/var/lib/postgresql/data
       - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro

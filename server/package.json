@@ -16,8 +16,9 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
-    "db:reset": "prisma migrate reset --force",
-    "test": "vitest run"
+    "db:reset": "prisma migrate reset --force && prisma db seed",
+    "test": "vitest run",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",

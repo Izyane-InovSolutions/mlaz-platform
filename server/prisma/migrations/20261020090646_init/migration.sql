@@ -228,7 +228,6 @@ CREATE TABLE "ReminderLog" (
 CREATE TABLE "Application" (
     "id" TEXT NOT NULL,
     "ref" TEXT NOT NULL,
-    "trackingTokenHash" TEXT NOT NULL,
     "businessName" TEXT NOT NULL,
     "town" TEXT NOT NULL,
     "province" TEXT NOT NULL,
@@ -243,6 +242,7 @@ CREATE TABLE "Application" (
     "directorName" TEXT NOT NULL,
     "directorNrc" TEXT NOT NULL,
     "mofRef" TEXT,
+    "mofExpiry" DATE,
     "stage" "ApplicationStage" NOT NULL,
     "returnNote" TEXT,
     "rejectionReason" TEXT,

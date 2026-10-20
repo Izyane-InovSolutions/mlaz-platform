@@ -3,7 +3,7 @@
 Clickable prototype of the Money Lenders Association of Zambia membership platform, built by iZyane.
 UI: **Bootstrap 5.3** + **Bootstrap Icons** (themed in `src/styles.scss`), Inter font.
 
-It runs entirely in the browser (no backend). Data changes are saved to `localStorage`, so they
+The UI currently runs entirely in the browser. A backend API now lives in [`server/`](server/README.md) and is not yet connected to the UI. Data changes are saved to `localStorage`, so they
 survive reloads. Use **Reset demo data** (site footer, or Settings in the Secretariat console) to
 restore the sample data.
 
