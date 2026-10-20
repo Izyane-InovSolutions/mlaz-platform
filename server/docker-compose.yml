@@ -1,0 +1,21 @@
+# Local PostgreSQL for development and tests. Port 5433 avoids clashing with a locally installed Postgres on 5432.
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mlaz
+      POSTGRES_PASSWORD: mlaz
+      POSTGRES_DB: mlaz
+    ports:
+      - "5433:5432"
+    volumes:
+      - mlaz-db:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlaz"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  mlaz-db:
