@@ -18,6 +18,10 @@ export default async function adminEngageRoutes(app: FastifyInstance) {
   app.get('/events/:id', { preHandler: requireStaff('events:read') }, async req => events.staffDetail((req.params as Id).id));
   app.post('/events', { preHandler: requireStaff('events:write') }, async (req, reply) => reply.status(201).send(await events.create(actorOf(req), req.body)));
   app.patch('/events/:id', { preHandler: requireStaff('events:write') }, async req => events.update(actorOf(req), (req.params as Id).id, req.body));
+  app.post('/events/registrations/:id/refund', { preHandler: requireStaff('payments:record') }, async (req, reply) => {
+    await events.markRefunded(actorOf(req), (req.params as Id).id, parse(z.object({ reference: s.line(80) }), req.body).reference);
+    return reply.status(204).send();
+  });
   app.post('/events/:id/cancel', { preHandler: requireStaff('events:write') }, async (req, reply) => {
     await events.cancel(actorOf(req), (req.params as Id).id, parse(z.object({ reason: s.text(1000) }), req.body).reason);
     return reply.status(204).send();
@@ -41,7 +45,7 @@ export default async function adminEngageRoutes(app: FastifyInstance) {
   app.get('/resources/:id/download', { preHandler: requireStaff() }, async (req, reply) => {
     const r = await prisma.resource.findUnique({ where: { id: (req.params as Id).id }, include: { document: true } });
     if (!r) throw notFound('Resource');
-    return sendDocument(reply, r.document, true);
+    return sendDocument(reply, r.document);
   });
   app.post('/resources', { preHandler: requireStaff('comms:write') }, async (req, reply) => {
     const { fields, files } = await readMultipart(req);

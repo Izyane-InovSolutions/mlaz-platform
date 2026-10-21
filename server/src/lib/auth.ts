@@ -15,23 +15,51 @@ export interface AuthUser {
   memberId: string | null;
 }
 
-export const passwordSchema = z.string().min(10, 'Use at least 10 characters').max(200);
+// Common and guessable passwords are refused outright; length does most of the work.
+const COMMON = new Set(['password1234', 'password12345', 'qwerty123456', '1234567890', '12345678910', 'iloveyou123', 'welcome1234', 'admin12345', 'letmein1234', 'zambia12345', 'lusaka12345', 'mlaz123456', 'changeme123', 'password@123', 'p@ssw0rd123']);
+export const passwordSchema = z.string().min(10, 'Use at least 10 characters').max(200)
+  .refine(p => !COMMON.has(p.toLowerCase()), 'That password is too common. Choose another.')
+  .refine(p => new Set(p).size >= 5, 'Use a less repetitive password.');
+
+/** Also refuses passwords built from the account's own email name. */
+export function checkPasswordForUser(password: string, email: string) {
+  const local = email.split('@')[0].toLowerCase();
+  return !(local.length >= 4 && password.toLowerCase().includes(local));
+}
 
 export const hashPassword = (password: string) => hash(password);
 export const verifyPassword = (passwordHash: string, password: string) => verify(passwordHash, password).catch(() => false);
 
-const ISSUER = 'mlaz-api';
-export const signAccessToken = (u: AuthUser) =>
-  jwt.sign({ role: u.role }, config.JWT_SECRET, { subject: u.id, expiresIn: config.ACCESS_TOKEN_TTL_MINUTES * 60, issuer: ISSUER, algorithm: 'HS256' });
+const ISSUER = 'mlaz-api', AUDIENCE = 'mlaz-platform';
 
-/** Returns the user id from a valid access token, or null. */
-export function verifyAccessToken(token: string): string | null {
+/** Short-lived access token. `setup` marks a staff session that must enrol in two-factor sign-in before anything else. */
+// `ims` is the issue time in milliseconds: JWT `iat` has only 1-second precision, too coarse to tell whether a token
+// predates "sign out everywhere" issued in the same second.
+export const signAccessToken = (u: AuthUser, opts: { mfaSetup?: boolean } = {}) =>
+  jwt.sign({ typ: 'access', role: u.role, ims: Date.now(), ...(opts.mfaSetup && { setup: true }) }, config.JWT_SECRET,
+    { subject: u.id, expiresIn: config.ACCESS_TOKEN_TTL_MINUTES * 60, issuer: ISSUER, audience: AUDIENCE, algorithm: 'HS256' });
+
+/** Proves the password step passed; only exchangeable for a session together with a valid second factor. */
+export const signMfaToken = (userId: string, remember: boolean) =>
+  jwt.sign({ typ: 'mfa', remember }, config.JWT_SECRET, { subject: userId, expiresIn: 300, issuer: ISSUER, audience: AUDIENCE, algorithm: 'HS256' });
+
+function verifyToken(token: string, typ: 'access' | 'mfa') {
   try {
-    const p = jwt.verify(token, config.JWT_SECRET, { issuer: ISSUER, algorithms: ['HS256'] });
-    return typeof p === 'object' && typeof p.sub === 'string' ? p.sub : null;
+    const p = jwt.verify(token, config.JWT_SECRET, { issuer: ISSUER, audience: AUDIENCE, algorithms: ['HS256'] });
+    if (typeof p !== 'object' || p.typ !== typ || typeof p.sub !== 'string' || typeof p.iat !== 'number') return null;
+    return p as jwt.JwtPayload & { sub: string; iat: number };
   } catch {
     return null;
   }
+}
+
+export function verifyAccessToken(token: string) {
+  const p = verifyToken(token, 'access');
+  return p && { userId: p.sub, issuedAt: new Date(typeof p.ims === 'number' ? p.ims : p.iat * 1000), mfaSetup: p.setup === true };
+}
+export function verifyMfaToken(token: string) {
+  const p = verifyToken(token, 'mfa');
+  return p && { userId: p.sub, remember: p.remember === true };
 }
 
 export const staffLabel = (u: Pick<AuthUser, 'name' | 'title' | 'role'>) => `${u.name} (${u.title || ROLE_LABEL[u.role]})`;

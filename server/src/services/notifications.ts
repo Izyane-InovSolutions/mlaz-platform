@@ -2,6 +2,7 @@ import type { NotificationChannel } from '../generated/prisma/client.js';
 import { config } from '../config.js';
 import { type Db, prisma } from '../lib/db.js';
 import { fmtDate } from '../lib/dates.js';
+import { notFound } from '../lib/errors.js';
 import { K } from '../lib/money.js';
 import { mailer, sms } from '../providers/messaging.js';
 
@@ -135,15 +136,39 @@ export async function processOutbox(limit = 25) {
     try {
       if (n.channel === 'EMAIL') await mailer.send(n.to, n.subject, n.body);
       else await sms.send(n.to, n.body);
-      await prisma.notification.update({ where: { id: n.id }, data: { status: 'SENT', sentAt: new Date(), lastError: null } });
+      // Once delivered, the stored copy keeps no live links: a database reader can't use someone's set-password link.
+      await prisma.notification.update({ where: { id: n.id }, data: { status: 'SENT', sentAt: new Date(), lastError: null, body: redactSecrets(n.body) } });
     } catch (e) {
-      const lastError = e instanceof Error ? e.message.slice(0, 500) : String(e);
+      const lastError = (e instanceof Error ? e.message : String(e)).slice(0, 500);
       const giveUp = n.attempts >= 5;
       await prisma.notification.update({
         where: { id: n.id },
-        data: giveUp ? { status: 'FAILED', lastError } : { lastError, sendAfter: new Date(Date.now() + 2 ** n.attempts * 60e3) },
+        data: giveUp ? { status: 'FAILED', lastError, body: redactSecrets(n.body) } : { lastError, sendAfter: new Date(Date.now() + 2 ** n.attempts * 60e3) },
       });
     }
   }
   return claimed.length;
+}
+
+/** Strips one-time tokens (set-password, tracking) from a message. */
+export const redactSecrets = (text: string) => text.replace(/([?&](?:token|t)=)[\w-]+/g, '$1[redacted]');
+
+/* ================= OPERATIONS ================= */
+
+/** Delivery problems for the Secretariat. Message bodies are never returned (they can hold one-time links). */
+export async function listNotifications(status: 'FAILED' | 'PENDING') {
+  return prisma.notification.findMany({
+    where: { status }, orderBy: { createdAt: 'desc' }, take: 200,
+    select: { id: true, channel: true, to: true, subject: true, status: true, attempts: true, lastError: true, createdAt: true, sendAfter: true },
+  });
+}
+
+/** Re-queues a failed message. Messages whose links were already scrubbed cannot be re-sent usefully, so they are refused. */
+export async function retryNotification(id: string) {
+  const n = await prisma.notification.findUnique({ where: { id } });
+  if (!n) throw notFound('Notification');
+  if (n.status !== 'FAILED') return false;
+  if (n.body.includes('[redacted]')) return false;
+  await prisma.notification.update({ where: { id }, data: { status: 'PENDING', attempts: 0, sendAfter: new Date(), lastError: null } });
+  return true;
 }

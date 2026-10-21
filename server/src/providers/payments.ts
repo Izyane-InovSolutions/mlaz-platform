@@ -31,7 +31,11 @@ export interface Outcome {
 
 export interface WebhookEvent extends Outcome {
   providerRef: string;
+  /** Amount the gateway says it collected, when it reports one; checked against the payment before applying it. */
+  amount?: number;
 }
+
+const WEBHOOK_TOLERANCE_SECONDS = 300;
 
 export interface PaymentProvider {
   name: string;
@@ -65,12 +69,23 @@ class SandboxProvider implements PaymentProvider {
     return { status: 'SUCCESS' };
   }
 
+  /**
+   * Signature = hex HMAC-SHA256 of `${timestamp}.${rawBody}` (headers x-sandbox-signature, x-sandbox-timestamp in Unix
+   * seconds). Signing the timestamp and refusing old ones stops a captured webhook from being replayed later.
+   */
   parseWebhook(headers: Record<string, unknown>, rawBody: string): WebhookEvent {
-    const sig = headers['x-sandbox-signature'];
-    if (typeof sig !== 'string' || !safeEqual(sig, hmac(config.WEBHOOK_SECRET, rawBody))) throw badRequest('Invalid webhook signature.');
-    const body = JSON.parse(rawBody) as { providerRef?: string; status?: string; reason?: string };
-    if (!body.providerRef || (body.status !== 'SUCCESS' && body.status !== 'FAILED')) throw badRequest('Malformed webhook.');
-    return { providerRef: body.providerRef, status: body.status, failureReason: body.reason };
+    const sig = headers['x-sandbox-signature'], ts = headers['x-sandbox-timestamp'];
+    if (typeof sig !== 'string' || typeof ts !== 'string' || !/^\d{10}$/.test(ts)) throw badRequest('Invalid webhook signature.');
+    if (Math.abs(Date.now() / 1000 - Number(ts)) > WEBHOOK_TOLERANCE_SECONDS) throw badRequest('Webhook timestamp outside the allowed window.');
+    if (!safeEqual(sig, hmac(config.WEBHOOK_SECRET, `${ts}.${rawBody}`))) throw badRequest('Invalid webhook signature.');
+    let body: { providerRef?: unknown; status?: unknown; reason?: unknown; amount?: unknown };
+    try { body = JSON.parse(rawBody); } catch { throw badRequest('Malformed webhook.'); }
+    if (typeof body.providerRef !== 'string' || (body.status !== 'SUCCESS' && body.status !== 'FAILED')) throw badRequest('Malformed webhook.');
+    return {
+      providerRef: body.providerRef, status: body.status,
+      failureReason: typeof body.reason === 'string' ? body.reason.slice(0, 200) : undefined,
+      amount: typeof body.amount === 'number' ? body.amount : undefined,
+    };
   }
 }
 

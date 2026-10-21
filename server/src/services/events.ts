@@ -58,7 +58,10 @@ export async function staffDetail(id: string) {
   const regs = await prisma.registration.findMany({ where: { eventId: id }, include: { member: { select: { number: true, name: true } }, payment: { select: { ref: true, status: true, method: true } } }, orderBy: { createdAt: 'desc' } });
   return {
     ...(await eventView(prisma, e)), revenue: await revenue(prisma, id),
-    registrations: regs.map(r => ({ id: r.id, member: r.member, tickets: r.tickets, amount: r.amount, status: r.status, refundDue: r.refundDue, payment: r.payment, createdAt: r.createdAt })),
+    registrations: regs.map(r => ({
+      id: r.id, member: r.member, tickets: r.tickets, amount: r.amount, status: r.status, refundDue: r.refundDue,
+      refundedAt: r.refundedAt, refundRef: r.refundRef, refundedBy: r.refundedBy, payment: r.payment, createdAt: r.createdAt,
+    })),
   };
 }
 
@@ -113,6 +116,21 @@ export async function cancel(actor: Actor, id: string, reason: string) {
   });
 }
 
+/** Records that a refund flagged on a cancelled paid registration has been paid back to the member. */
+export async function markRefunded(actor: Actor, registrationId: string, reference: string) {
+  return prisma.$transaction(async tx => {
+    const r = await tx.registration.findUnique({ where: { id: registrationId }, include: { event: true, member: true } });
+    if (!r) throw notFound('Registration');
+    if (!r.refundDue || r.refundedAt) throw conflict('This registration has no refund outstanding.');
+    await tx.registration.update({ where: { id: r.id }, data: { refundDue: false, refundedAt: new Date(), refundRef: reference, refundedBy: actor.label } });
+    await audit(tx, actor, r.member.number, 'Event refund paid', `${r.event.name} · ${K(r.amount)} · ref ${reference}`);
+    await notify(tx, { email: r.member.contactEmail }, {
+      subject: `Refund paid: ${r.event.name}`,
+      text: `Your ticket payment of ${K(r.amount)} for ${r.event.name} has been refunded (reference ${reference}).\n\nMLAZ Secretariat`,
+    });
+  });
+}
+
 /* ================= MEMBER PORTAL ================= */
 
 const myActive = (db: Db, eventId: string, memberId: string) =>
@@ -142,6 +160,7 @@ export async function register(actor: Actor, memberId: string, eventId: string, 
     const left = e.capacity - (await seatsTaken(tx, eventId));
     if (tickets > left) throw conflict(left ? `Only ${left} place(s) left.` : 'This event is fully booked.', 'EVENT_FULL');
     const m = await tx.member.findUniqueOrThrow({ where: { id: memberId } });
+    if (m.status !== 'ACTIVE') throw conflict('Event registration is open to active members. Settle your membership first.', 'MEMBERSHIP_NOT_ACTIVE');
     const price = num(e.price);
 
     if (!price) {

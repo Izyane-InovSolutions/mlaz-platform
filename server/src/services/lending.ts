@@ -5,7 +5,8 @@ import { type Actor, audit } from '../lib/audit.js';
 import type { AuthUser } from '../lib/auth.js';
 import { dateOnly, today } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
-import { badRequest, notFound, tooMany } from '../lib/errors.js';
+import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.js';
+import { inGoodStanding } from './membership.js';
 import { num } from '../lib/money.js';
 import { s } from '../lib/validate.js';
 import { GOOD_SCORE, SCORE_MAX, SCORE_MIN, bureau, isGood } from '../providers/bureau.js';
@@ -53,7 +54,14 @@ export async function createLoan(actor: Actor, memberId: string, body: unknown) 
   const v = loanSchema.parse(body);
   if (v.balance > v.amount) throw badRequest('The balance cannot be more than the loan amount.');
   if (dateOnly(v.issuedAt) > today()) throw badRequest('The issue date cannot be in the future.');
-  const loan = await prisma.loan.create({ data: { ...v, issuedAt: dateOnly(v.issuedAt), memberId } });
+  // Reuse this member's own recent check of the same borrower, so the score shows without another bureau enquiry.
+  const recent = await prisma.creditCheck.findFirst({
+    where: { memberId, nrc: v.borrowerNrc, found: true, createdAt: { gte: new Date(Date.now() - 30 * 864e5) } },
+    orderBy: { createdAt: 'desc' },
+  });
+  const loan = await prisma.loan.create({
+    data: { ...v, issuedAt: dateOnly(v.issuedAt), memberId, ...(recent && { lastScore: recent.score, lastCheckedAt: recent.createdAt }) },
+  });
   return loanView(loan);
 }
 
@@ -86,6 +94,9 @@ export const creditCheckSchema = z.object({
 export async function creditCheck(user: AuthUser, actor: Actor, body: unknown) {
   const v = creditCheckSchema.parse(body);
   const memberId = user.memberId!;
+  // Bureau access is a privilege of accreditation: lapsed or suspended lenders lose it.
+  const standing = await prisma.member.findUniqueOrThrow({ where: { id: memberId } });
+  if (!inGoodStanding(standing)) throw forbidden('Credit checks are available to members in good standing only.', 'NOT_IN_GOOD_STANDING');
   const used = await prisma.creditCheck.count({ where: { memberId, createdAt: { gte: today() } } });
   if (used >= config.CREDIT_CHECKS_PER_DAY) throw tooMany(`Your daily limit of ${config.CREDIT_CHECKS_PER_DAY} credit checks has been reached.`);
   const record = await bureau.lookup(v.nrc);

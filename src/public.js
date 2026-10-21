@@ -1,9 +1,14 @@
 import {
-  esc, K, fmtDate, memberById, icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast,
-  nav, after, expose, empty, modal, busy, rerender, NRC_ATTRS, digitsAttrs,
+  esc, K, fmtDate, icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast,
+  nav, after, expose, empty, modal, busy, rerender, NRC_ATTRS, digitsAttrs, jsArg,
 } from './ui.js';
-import { ApiError, api, download, forgetTrackToken, pub, publicConfig, saveTrackToken, signIn, signOut, trackToken } from './api.js';
+import { ApiError, api, completeSignIn, download, forgetTrackToken, isTrackingToken, pub, publicConfig, saveTrackToken, signIn, trackToken } from './api.js';
+
+// Anything read from the URL is checked against its exact format before it is used anywhere.
+const isAppRef = r => /^APP-\d{4,8}$/.test(r);
+const isLinkToken = t => typeof t === 'string' && /^[A-Za-z0-9_-]{20,200}$/.test(t);
 import { checkoutForm, readCheckout, runCheckout } from './checkout.js';
+import { secureAccountPage } from './security.js';
 
 // Public website. Every page reads live data from the API (src/api.js); nothing here touches the local demo store.
 
@@ -403,13 +408,12 @@ async function track(refParam, query) {
   clearTimeout(trackTimer);
   const ref = (refParam || '').trim().toUpperCase();
   const linkToken = query?.get('t');
-  if (ref && linkToken) {
-    // Keep the token out of the address bar (and screenshots, shared links) once it's remembered.
-    saveTrackToken(ref, linkToken);
-    history.replaceState(null, '', `#/track/${encodeURIComponent(ref)}`);
-  }
+  if (ref && isAppRef(ref) && isTrackingToken(linkToken)) saveTrackToken(ref, linkToken);
+  // Keep the token out of the address bar (and screenshots, shared links, history) once it's remembered.
+  if (linkToken) history.replaceState(null, '', ref ? `#/track/${encodeURIComponent(ref)}` : '#/track');
   let result = '';
-  if (ref && !trackToken(ref)) result = needLink(ref, false);
+  if (ref && !isAppRef(ref)) result = alertBox('warning', 'exclamation-triangle', 'That doesn’t look like an application reference. References look like <b>APP-2042</b>.');
+  else if (ref && !trackToken(ref)) result = needLink(ref, false);
   else if (ref) {
     try {
       const [a, cfg] = await Promise.all([pub(`/applications/${encodeURIComponent(ref)}`, { headers: tokenHeader(ref) }), publicConfig()]);
@@ -433,13 +437,14 @@ const needLink = (ref, invalid) => `<div class="card border-0 shadow-sm"><div cl
   <div><h2 class="h5 mb-1">${invalid ? `We couldn’t open application ${esc(ref)}` : `Open your tracking link for ${esc(ref)}`}</h2>
   <p class="small text-body-secondary mb-0">${invalid ? 'The reference or link isn’t valid. Check the reference in your confirmation email.' : 'To keep applications private, they can only be opened from the link we emailed when you applied, or in the browser you applied from.'}
   Enter the email address on the application and we’ll send the link again.</p></div></div>
-  <form class="row g-2" novalidate onsubmit="event.preventDefault();trackResend('${esc(ref)}',this)">
+  <form class="row g-2" novalidate onsubmit="event.preventDefault();trackResend(${jsArg(ref)},this)">
     <div class="col-sm"><input class="form-control" type="email" name="email" placeholder="Contact email on the application" required><div class="invalid-feedback">Enter a valid email address.</div></div>
     <div class="col-sm-auto"><button class="btn btn-primary w-100">Email me the link</button></div>
   </form></div></div>`;
 
 function trackCard(a, cfg) {
-  const ref = esc(a.ref);
+  if (!isAppRef(a.ref)) throw new Error('Unexpected application reference');
+  const ref = esc(a.ref); // validated format: digits and "APP-" only
   const fees = `<div class="bg-body-tertiary rounded p-3 small">
     <div class="d-flex justify-content-between"><span>Joining fee</span><span>${K(a.fees.joiningFee)}</span></div>
     <div class="d-flex justify-content-between"><span>${esc(a.tier)} annual dues</span><span>${K(a.fees.annualDues)}</span></div>
@@ -468,7 +473,7 @@ function trackCard(a, cfg) {
       action = `${alertBox('success', 'check-circle', 'Your MoF authorization has been verified. Complete your bank transfer, then upload the proof of payment.')}
         <div class="row g-4"><div class="col-md-6"><div class="bg-body-tertiary rounded p-3 small d-grid gap-1"><div class="fw-semibold mb-1">Pay ${K(p.amount)} into this account</div>
           ${row('Bank', esc(b.bank))}${row('Account name', esc(b.name))}${row('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${row('Branch', esc(b.branch))}${row('Payment reference', `<span class="font-monospace">${esc(p.ref)}</span>`)}</div></div>
-        <div class="col-md-6"><form id="proofform" class="d-grid gap-2" novalidate onsubmit="event.preventDefault();trackProof('${ref}','${esc(p.ref)}',this)">
+        <div class="col-md-6"><form id="proofform" class="d-grid gap-2" novalidate onsubmit="event.preventDefault();trackProof('${ref}',${jsArg(p.ref)},this)">
           <div><label class="form-label small fw-medium">Your bank transaction reference</label><input class="form-control" name="bankRef" required placeholder="e.g. FT26285ABC12"><div class="invalid-feedback">Required.</div></div>
           <div><label class="form-label small fw-medium">Proof of payment <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="proof" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach your deposit slip or transfer confirmation.</div></div>
           <button class="btn btn-primary">Submit proof of payment</button></form></div></div>
@@ -488,7 +493,7 @@ function trackCard(a, cfg) {
     <p class="small">We’ve emailed <b>${esc(a.contactEmail)}</b> a link to set your member portal password. Use it within 7 days.</p>
     <div class="d-flex flex-wrap gap-2">
       <button class="btn btn-outline-primary" onclick="trackCert('${ref}',this)">${icon('award', 'me-1')} Download certificate</button>
-      ${a.payment?.status === 'SUCCESS' ? `<button class="btn btn-outline-secondary" onclick="trackReceipt('${ref}','${esc(a.payment.ref)}',this)">${icon('receipt', 'me-1')} Receipt</button>` : ''}
+      ${a.payment?.status === 'SUCCESS' ? `<button class="btn btn-outline-secondary" onclick="trackReceipt('${ref}',${jsArg(a.payment.ref)},this)">${icon('receipt', 'me-1')} Receipt</button>` : ''}
       <a class="btn btn-primary" href="#/login/member">Go to member portal</a></div>`;
 
   if (a.stage === 'REJECTED') action = alertBox('danger', 'x-octagon', `<b>This application was not approved.</b> ${esc(a.rejectionReason || '')}<div class="mt-1">Contact the Secretariat on secretariat@mlaz.org.zm if you have questions.</div>`, 'mb-0 fs-6');
@@ -592,18 +597,43 @@ async function doLogin(role, form) {
   busy(btn, true, 'Signing in…');
   try {
     const s = await signIn(email, pwd, role === 'admin' ? 'staff' : 'member', form.remember.checked);
-    // Transitional: the portal pages still read the demo data, so a member that only exists on the server can't open them yet.
-    if (role === 'member' && !memberById(s.memberId)) {
-      await signOut();
-      busy(btn, false);
-      return err(`Your account for <b>${esc(s.memberName || s.memberId)}</b> is active, but the member portal isn’t connected to the live system yet. Please check back soon.`);
-    }
-    nav(role === 'admin' ? 'app/dashboard' : 'app/overview');
+    if (s.mfaRequired) return showMfaStep(role, s.mfaToken, form);
+    await afterSignIn(role, s, btn, err);
   } catch (e) {
     busy(btn, false);
     const other = role === 'admin' ? '<a href="#/login/member">Use the member sign-in instead</a>.' : '<a href="#/login/admin">Use the Secretariat sign-in instead</a>.';
     err(`${esc(e.message)}${e.code === 'WRONG_PORTAL' ? ` ${other}` : ''}`);
   }
+}
+
+function afterSignIn(role, s) {
+  if (role === 'admin' && s.mfaSetupRequired) return nav('secure-account');
+  nav(role === 'admin' ? 'app/dashboard' : 'app/overview');
+}
+
+// Second step for accounts with two-factor sign-in. The intermediate token stays in this closure only.
+function showMfaStep(role, mfaToken, form) {
+  const err = msg => { document.getElementById('loginerr').innerHTML = alertBox('danger', 'exclamation-circle', msg); };
+  document.getElementById('loginerr').innerHTML = '';
+  form.outerHTML = `<form id="mfaform" novalidate>
+    <p class="small text-body-secondary">Enter the 6-digit code from your authenticator app. Lost your phone? Enter one of your recovery codes instead.</p>
+    <div class="mb-4"><label class="form-label small fw-medium" for="mfacode">Authentication code</label>
+      <input class="form-control form-control-lg text-center font-monospace" id="mfacode" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required autofocus></div>
+    <button class="btn btn-primary btn-lg w-100">Verify</button>
+    <div class="text-center mt-3"><a class="small" href="#/login/${role === 'admin' ? 'admin' : 'member'}" onclick="setTimeout(rerender)">Start again</a></div></form>`;
+  const f = document.getElementById('mfaform');
+  f.code.focus();
+  f.onsubmit = async e => {
+    e.preventDefault();
+    const code = f.code.value.trim(), btn = f.querySelector('button');
+    if (!code) return f.code.classList.add('is-invalid');
+    busy(btn, true, 'Verifying…');
+    try { await afterSignIn(role, await completeSignIn(mfaToken, code, role === 'admin' ? 'staff' : 'member'), btn, err); }
+    catch (ex) {
+      busy(btn, false); f.code.value = ''; f.code.focus();
+      err(ex.status === 401 && ex.code !== 'INVALID_CODE' ? `${esc(ex.message)} <a href="#/login/${role}" onclick="setTimeout(rerender)">Sign in again</a>.` : esc(ex.message));
+    }
+  };
 }
 
 function forgotPassword(prefill = '') {
@@ -628,13 +658,16 @@ function forgotPassword(prefill = '') {
 
 /* ================= SET PASSWORD (invite and reset links) ================= */
 function setPassword(_, query) {
-  const token = query?.get('token');
+  const raw = query?.get('token');
+  const token = isLinkToken(raw) ? raw : null;
+  // The link token is single-use and secret: take it out of the address bar (and history) straight away.
+  if (raw) after(() => history.replaceState(null, '', '#/set-password'));
   const card = inner => `<section class="py-5 bg-body-tertiary min-vh-75 d-flex align-items-center"><div class="container"><div class="row justify-content-center"><div class="col-md-8 col-lg-5">
     <div class="card border-0 shadow-sm"><div class="card-body p-4 p-md-5" id="setpw">${inner}</div></div></div></div></div></section>`;
   if (!token) return card(`<h1 class="h4 mb-2">Set your password</h1><p class="small text-body-secondary mb-0">Open the link from your invitation or password-reset email. Links expire; <a href="javascript:void 0" onclick="forgotPassword()">ask for a new one</a>.</p>`);
   return card(`<div class="text-center mb-4"><span class="brand-mark lg">${icon('key')}</span><h1 class="h4 mt-3 mb-1">Set your password</h1><p class="small text-body-secondary mb-0">Choose a password for your MLAZ account. Use at least 10 characters.</p></div>
     <div id="setpwerr"></div>
-    <form novalidate onsubmit="event.preventDefault();submitNewPassword('${esc(token)}',this)">
+    <form novalidate onsubmit="event.preventDefault();submitNewPassword(${jsArg(token)},this)">
       <div class="mb-3"><label class="form-label small fw-medium">New password</label><input class="form-control form-control-lg" type="password" name="password" minlength="10" autocomplete="new-password" required><div class="invalid-feedback">Use at least 10 characters.</div></div>
       <div class="mb-4"><label class="form-label small fw-medium">Confirm password</label><input class="form-control form-control-lg" type="password" name="confirm" minlength="10" autocomplete="new-password" required><div class="invalid-feedback">Repeat the password.</div></div>
       <button class="btn btn-primary btn-lg w-100">Set password</button>
@@ -649,7 +682,6 @@ async function submitNewPassword(token, form) {
   busy(btn, true, 'Saving…');
   try {
     const r = await api('/auth/password/set', { method: 'POST', body: { token, password: v.password }, auth: false });
-    history.replaceState(null, '', '#/set-password'); // the link is single-use; drop it from the address bar
     document.getElementById('setpw').innerHTML = `<div class="text-center py-2">
       <span class="icon-circle bg-success-subtle text-success-emphasis mb-3" style="width:64px;height:64px;font-size:1.8rem">${icon('check-lg')}</span>
       <h1 class="h4">Password set</h1><p class="small text-body-secondary">You can now sign in as <b>${esc(r.email)}</b>.</p>
@@ -738,7 +770,7 @@ async function loadDirectory(more = false) {
     : dir.total ? `<div class="small text-body-secondary">${dir.total} member${dir.total === 1 ? '' : 's'}</div>` : '';
 }
 
-export const PUBLIC = { '': home, apply, track, login, verify, directory, 'set-password': setPassword };
+export const PUBLIC = { '': home, apply, track, login, verify, directory, 'set-password': setPassword, 'secure-account': secureAccountPage };
 expose({
   goSection, wizNext, wizPrev, wizSubmit, trackUpload, trackPay, trackProof, trackCert, trackReceipt, trackResend,
   doLogin, forgotPassword, submitNewPassword, filterDirectory, loadDirectory, toast,

@@ -36,6 +36,13 @@ model User {
   role         Role
   passwordHash String? // null until an invite is accepted
   active       Boolean   @default(true)
+  // Access tokens issued before this instant are rejected (set on password change, reset, deactivation, "sign out everywhere").
+  sessionsValidAfter DateTime?
+  // Two-factor sign-in (TOTP). The secret is encrypted at rest; recovery codes are stored as SHA-256 hashes.
+  totpSecret    String?
+  totpEnabledAt DateTime?
+  totpLastStep  Int? // last accepted time step, so a code cannot be replayed
+  recoveryCodes String[] @default([])
   memberId     String?
   member       Member?   @relation(fields: [memberId], references: [id])
   lastLoginAt  DateTime?
@@ -57,6 +64,8 @@ model RefreshToken {
   tokenHash String    @unique
   expiresAt DateTime
   revokedAt DateTime?
+  // True when the token was exchanged for a new one. Seeing it again means it was copied: theft is assumed.
+  rotated   Boolean   @default(false)
   createdAt DateTime  @default(now())
 
   @@index([userId])
@@ -72,6 +81,15 @@ model UserToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime     @default(now())
+}
+
+// Failed sign-in attempts per email address (hashed), whether or not the account exists, so lockouts do not reveal
+// which emails are registered.
+model LoginThrottle {
+  key         String    @id // sha256 of the lower-cased email
+  failures    Int       @default(0)
+  windowStart DateTime  @default(now())
+  lockedUntil DateTime?
 }
 
 /* ================= CONFIGURATION ================= */
@@ -468,6 +486,9 @@ model Registration {
   amount      Decimal            @db.Decimal(12, 2)
   status      RegistrationStatus
   refundDue   Boolean            @default(false) // paid registration on an event that was cancelled
+  refundedAt  DateTime?
+  refundRef   String?
+  refundedBy  String?
   createdAt   DateTime           @default(now())
   cancelledAt DateTime?
 

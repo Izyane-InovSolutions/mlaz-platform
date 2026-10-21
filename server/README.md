@@ -66,14 +66,65 @@ test/               API tests (vitest + fastify.inject on a real Postgres)
 - **Audit trail**: every decision and change is recorded with who, when and what (`AuditLog`), including staff viewing documents.
 - **Notifications** are written to an outbox in the same transaction as the change, then delivered by the job runner with retries.
 
-### Security notes
+## Security
 
-- Passwords are hashed with argon2id. Access tokens (JWT, 15 min) go in the `Authorization: Bearer` header; refresh tokens rotate
-  on every use, and replaying an old one revokes all of that user's sessions.
-- Applicants have no account. Their tracking link carries an HMAC token derived from the reference, so sequential references
-  (`APP-2042`) can't be enumerated. Send it as `x-tracking-token` or `?t=`.
-- Uploads: PDF/JPG/PNG only, detected from the file's bytes; 10 MB limit; stored under server-generated keys.
-- Rate limits on login, password reset, applications, verification and credit checks. CSV exports neutralise spreadsheet formulas.
+Every item below is enforced on the server and covered by tests (`test/security.test.ts` and the other suites).
+
+**Sign-in and sessions**
+- Passwords: argon2id; at least 10 characters, common and repetitive passwords refused, and not built from the email name.
+- Brute force: 5 failures in 15 minutes locks that email for 15 minutes. Unknown emails lock the same way, so a lockout
+  reveals nothing. A constant-time dummy hash hides whether an account exists.
+- Two-factor sign-in (TOTP, any authenticator app) for any account. The secret is encrypted at rest (AES-256-GCM,
+  `DATA_ENCRYPTION_KEY`). Each code works once, eight hashed recovery codes are issued, and an admin can reset a
+  colleague's lost device. Set `REQUIRE_STAFF_2FA=true` to force enrolment for all staff.
+- Tokens: a 15-minute access token (JWT, HS256, issuer/audience/type checked) held only in the page's memory. The refresh
+  token is an `httpOnly`, `SameSite=Strict` cookie scoped to `/api/auth`, so page scripts can never read it; cookie
+  endpoints also require an allowed `Origin` and the `x-mlaz-csrf` header. Refresh tokens rotate, and re-use of a
+  rotated one is treated as theft and ends every session.
+- Changing or resetting a password, deactivation, resetting 2FA and "sign out everywhere" invalidate every existing
+  access token immediately (millisecond-precise `sessionsValidAfter`). The user is re-read on every request.
+- Invite and reset links are single-use, hashed at rest, short-lived (1 hour for resets), and only the newest one works.
+
+**Access control**
+- Every console route checks a role permission (`src/lib/rbac.ts`). Maker-checker is enforced server-side. Search and
+  the dashboard only return what the role can open (no application pipeline or money figures for other roles).
+- Members only reach their own records (payments, documents, loans, registrations). They can edit contact details but
+  not their business name, location or registration numbers. The credit bureau and event registration need good standing.
+- Applicants have no account: their tracking link carries a 192-bit HMAC token derived from the reference, so
+  sequential references can't be enumerated.
+
+**Input, output and files**
+- Every body, query and param is validated with zod (lengths, formats, enums); unknown fields are dropped and control
+  characters refused. All SQL goes through Prisma or tagged parameterised queries.
+- Uploads: PDF/JPG/PNG only, detected from the file's bytes; 10 MB and 4 files per request; stored under random
+  server-generated keys. Files are always served as attachments with `Content-Security-Policy: sandbox` and `no-store`.
+- Responses: helmet headers (strict CSP, HSTS, `no-referrer`, no framing). Personal-data responses are `no-store`.
+  Errors never leak internals or echo URLs. CSV exports neutralise spreadsheet formulas.
+- Logs: tokens in URLs (`?t=`, `?token=`) are redacted. Delivered emails have their one-time links scrubbed from the
+  outbox, and message bodies are never returned by the API.
+
+**Network and payments**
+- A global rate limit per client IP (`RATE_LIMIT_PER_MINUTE`), plus tighter limits on sign-in, resets, applications,
+  verification and credit checks. `X-Forwarded-For` is only trusted for `TRUST_PROXY_HOPS` proxies, so IPs can't be spoofed.
+- CORS allows only `CORS_ORIGINS`.
+- Webhooks: HMAC over timestamp and body, constant-time comparison, a 5-minute replay window, and the reported amount
+  must match the payment. Settlement is idempotent and row-locked. Checkout links must be HTTPS.
+
+**Production start-up checks** (the server refuses to start otherwise)
+- The secrets are present, high-entropy and all different.
+- HTTPS-only cookies, `https://` origins and app URL.
+- No sandbox payments unless `ALLOW_SANDBOX_IN_PRODUCTION=true`.
+- The demo seed refuses to run in production.
+
+**Still your responsibility when deploying**
+- Serve the UI and the API over HTTPS on the same site (e.g. `app.mlaz.org.zm` + `api.mlaz.org.zm`) so the `SameSite`
+  cookie works.
+- Set `TRUST_PROXY_HOPS` to match your load balancer and turn on `REQUIRE_STAFF_2FA`.
+- Run Postgres with encrypted disks/backups and a least-privilege database user.
+- Rate limits are per instance (in memory). Add a shared store (Redis) if you run several API replicas.
+- The UI's CSP needs `'unsafe-inline'` for scripts because pages use inline event handlers. Every handler argument is
+  JSON-encoded (`jsArg`) and all text is escaped, but moving to `addEventListener` would allow a strict CSP.
+- In `vercel.json`, tighten `connect-src` to the API's domain.
 
 ## API
 
@@ -118,11 +169,9 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 
 ## Connecting the UI
 
-**Done:** the public website, sign-in, set-password pages and the Secretariat console (`src/admin.js`) use the API
-through `src/api.js` and `src/checkout.js`.
-**Next:** the member portal (`src/member.js`), which still reads demo data.
-
-The prototype keeps state in `localStorage` (`src/store.js`) and reads it synchronously from every page. To integrate:
+**Done:** every page uses the API through `src/api.js` and `src/checkout.js`: the public website, sign-in and
+set-password, the Secretariat console (`src/admin.js`) and the member portal (`src/member.js`). The prototype's
+`localStorage` demo store has been removed. For reference, this is how the prototype was moved over:
 
 1. Add a small API client (base URL from `import.meta.env.VITE_API_URL`, bearer token, refresh on 401).
 2. Have each route load its data before rendering. The router in `src/main.js` can `await` a page's loader and then render.

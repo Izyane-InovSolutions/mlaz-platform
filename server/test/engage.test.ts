@@ -89,6 +89,22 @@ describe('credit checks', () => {
     if (ok.json().found) expect((await member.get('/portal/loans')).json().items[0].score).toBe(ok.json().report.score);
   });
 
+  it('shows the score from a recent check on a loan added afterwards', async () => {
+    const m = await makeMember();
+    const member = await as(m.email);
+    let score: number | null = null;
+    for (const nrc of ['284512/11/1', '320871/41/1']) {
+      const r = (await member.post('/portal/credit-checks', { nrc, purpose: 'NEW_LOAN', consent: true })).json();
+      if (r.found) {
+        score = r.report.score;
+        await member.post('/portal/loans', { borrowerNrc: nrc, borrowerName: 'Later Loan', amount: 1000, balance: 1000, issuedAt: isoDate(addDays(today(), -1)) });
+        break;
+      }
+    }
+    expect(score).not.toBeNull();
+    expect((await member.get('/portal/loans')).json().items[0].score).toBe(score);
+  });
+
   it('enforces the daily limit', async () => {
     const m = await makeMember();
     const member = await as(m.email);

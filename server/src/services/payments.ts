@@ -94,7 +94,9 @@ export async function initiate(paymentId: string) {
         ref: p.ref, amount: num(p.amount), method: p.method, msisdn: p.msisdn, payerName: p.payerName,
         description: p.lines.map(l => l.description).join(', '),
       });
-      await prisma.payment.update({ where: { id: p.id }, data: { providerRef: r.providerRef, checkoutUrl: r.checkoutUrl, qrPayload: r.qrPayload } });
+      // Only ever send payers to an HTTPS checkout page.
+      const checkoutUrl = r.checkoutUrl && /^https:\/\//.test(r.checkoutUrl) ? r.checkoutUrl : undefined;
+      await prisma.payment.update({ where: { id: p.id }, data: { providerRef: r.providerRef, checkoutUrl, qrPayload: r.qrPayload } });
       if (r.status !== 'PENDING') await settle(p.id, { status: r.status, failureReason: r.failureReason }, SYSTEM);
     } catch {
       await settle(p.id, { status: 'FAILED', failureReason: 'The payment provider could not be reached. Please try again.' }, SYSTEM);
@@ -250,8 +252,14 @@ export async function handleWebhook(providerName: string, headers: Record<string
   if (!provider) throw notFound(`Payment provider ${providerName}`);
   const event = provider.parseWebhook(headers, rawBody);
   const p = await prisma.payment.findUnique({ where: { providerRef: event.providerRef } });
-  if (!p) throw notFound('Payment');
-  await settle(p.id, event, { type: 'SYSTEM', label: `${provider.name} webhook` });
+  if (!p || p.provider !== provider.name) throw notFound('Payment');
+  const actor = { type: 'SYSTEM' as const, label: `${provider.name} webhook` };
+  // A success for a different amount than we asked for is not applied; staff look at it instead.
+  if (event.status === 'SUCCESS' && event.amount !== undefined && Math.abs(event.amount - num(p.amount)) > 0.009) {
+    await audit(prisma, actor, 'Payments', 'Payment amount mismatch', `${p.ref} · expected ${K(p.amount)}, gateway reported ${K(event.amount)} · not applied`);
+    throw conflict('Amount does not match the payment.', 'AMOUNT_MISMATCH');
+  }
+  await settle(p.id, event, actor);
 }
 
 /* ================= VIEWS ================= */

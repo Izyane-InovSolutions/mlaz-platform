@@ -100,21 +100,38 @@ describe('payment webhooks and settlement', () => {
     return prisma.payment.findUniqueOrThrow({ where: { ref: p.ref } });
   }
 
+  const webhook = async (body: string, ts = String(Math.floor(Date.now() / 1000)), sig = hmac(config.WEBHOOK_SECRET, `${ts}.${body}`)) =>
+    (await getApp()).inject({ method: 'POST', url: '/api/webhooks/payments/sandbox', headers: { 'content-type': 'application/json', 'x-sandbox-signature': sig, 'x-sandbox-timestamp': ts }, payload: body });
+
   it('rejects a webhook with a bad signature', async () => {
     const p = await pendingPayment();
-    const body = JSON.stringify({ providerRef: p.providerRef, status: 'SUCCESS' });
-    const res = await (await getApp()).inject({ method: 'POST', url: '/api/webhooks/payments/sandbox', headers: { 'content-type': 'application/json', 'x-sandbox-signature': 'bad' }, payload: body });
+    const res = await webhook(JSON.stringify({ providerRef: p.providerRef, status: 'SUCCESS' }), undefined, 'bad');
     expect(res.statusCode).toBe(400);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('PENDING');
   });
 
-  it('settles a payment from a correctly signed webhook, and ignores a replay', async () => {
+  it('settles a payment from a correctly signed webhook, and applies a duplicate only once', async () => {
     const p = await pendingPayment();
     const body = JSON.stringify({ providerRef: p.providerRef, status: 'SUCCESS' });
-    const send = async () => (await getApp()).inject({ method: 'POST', url: '/api/webhooks/payments/sandbox', headers: { 'content-type': 'application/json', 'x-sandbox-signature': hmac(config.WEBHOOK_SECRET, body) }, payload: body });
-    expect((await send()).statusCode).toBe(200);
-    expect((await send()).statusCode).toBe(200);
+    expect((await webhook(body)).statusCode).toBe(200);
+    expect((await webhook(body)).statusCode).toBe(200);
     expect(await prisma.duesPayment.count({ where: { paymentId: p.id } })).toBe(1);
+  });
+
+  it('refuses a correctly signed webhook replayed after the time window', async () => {
+    const p = await pendingPayment();
+    const old = String(Math.floor(Date.now() / 1000) - 3600);
+    const res = await webhook(JSON.stringify({ providerRef: p.providerRef, status: 'SUCCESS' }), old);
+    expect(res.statusCode).toBe(400);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('PENDING');
+  });
+
+  it('answers malformed signed bodies with 400, and does not apply a success for the wrong amount', async () => {
+    const p = await pendingPayment();
+    expect((await webhook('{not json')).statusCode).toBe(400);
+    const res = await webhook(JSON.stringify({ providerRef: p.providerRef, status: 'SUCCESS', amount: 1 }));
+    expect(res.statusCode).toBe(409);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('PENDING');
   });
 
   it('honours a success that arrives after the payment timed out', async () => {

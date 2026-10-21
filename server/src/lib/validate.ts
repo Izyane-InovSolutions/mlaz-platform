@@ -11,10 +11,14 @@ export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T>
 
 export const PROVINCES = ['Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka', 'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western'] as const;
 
-const trimmed = (max = 200) => z.string().trim().min(1, 'Required').max(max);
+// No control characters in any text field (line breaks and tabs are allowed in free text only).
+const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+const trimmed = (max = 200) => z.string().trim().min(1, 'Required').max(max).refine(v => !CONTROL.test(v), 'Contains characters that are not allowed');
 export const s = {
   text: trimmed,
-  optionalText: (max = 500) => z.string().trim().max(max).optional().default(''),
+  optionalText: (max = 500) => z.string().trim().max(max).refine(v => !CONTROL.test(v), 'Contains characters that are not allowed').optional().default(''),
+  /** A single line: no line breaks either (names, references, anything that may end up in an email header). */
+  line: (max = 200) => trimmed(max).refine(v => !/[\r\n]/.test(v), 'Must be a single line'),
   email: z.string().trim().toLowerCase().pipe(z.email('Enter a valid email address')),
   phone: z.string().trim().regex(/^\+?[0-9 ()-]{9,20}$/, 'Enter a valid phone number'),
   msisdn: z.string().trim().transform(v => v.replace(/[\s()-]/g, '')).pipe(z.string().regex(/^(\+?260|0)?[79][5-7][0-9]{7}$/, 'Enter a valid Zambian mobile money number')),

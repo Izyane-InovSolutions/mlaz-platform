@@ -5,6 +5,7 @@ import { prisma } from '../lib/db.js';
 import { conflict } from '../lib/errors.js';
 import { actorOf, requireStaff } from '../lib/guards.js';
 import { parse, s } from '../lib/validate.js';
+import { setMemberUserActive } from '../services/accounts.js';
 import * as applications from '../services/applications.js';
 import * as members from '../services/members.js';
 import { memberByNumber, reinstate, rejectRenewal, verifyRenewal } from '../services/membership.js';
@@ -40,6 +41,13 @@ export default async function adminMemberRoutes(app: FastifyInstance) {
   app.post('/members/:number/users', { preHandler: requireStaff('members:write') }, async (req, reply) => {
     const v = parse(z.object({ email: s.email, name: s.text(120) }), req.body);
     return reply.status(201).send(await members.inviteMemberUser(actorOf(req), (req.params as P<'number'>).number, v.email, v.name));
+  });
+  app.patch('/members/:number/users/:userId', { preHandler: requireStaff('members:write') }, async (req, reply) => {
+    const { number, userId } = req.params as P<'number' | 'userId'>;
+    const v = parse(z.object({ active: z.boolean() }), req.body);
+    const m = await memberByNumber(prisma, number);
+    await setMemberUserActive(actorOf(req), m.id, userId, v.active);
+    return reply.status(204).send();
   });
   app.get('/members/:number/certificate.pdf', { preHandler: requireStaff('members:read') }, async (req, reply) => {
     const m = await memberByNumber(prisma, (req.params as P<'number'>).number);

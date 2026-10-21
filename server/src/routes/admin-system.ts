@@ -2,9 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../lib/audit.js';
 import { prisma } from '../lib/db.js';
-import { notFound } from '../lib/errors.js';
+import { conflict, notFound } from '../lib/errors.js';
+import { listNotifications, retryNotification } from '../services/notifications.js';
 import { actorOf, requireStaff, userOf } from '../lib/guards.js';
-import { ROLE_LABEL } from '../lib/rbac.js';
+import { ROLE_LABEL, can } from '../lib/rbac.js';
 import { parse, s } from '../lib/validate.js';
 import * as accounts from '../services/accounts.js';
 import { overview } from '../services/dashboard.js';
@@ -34,9 +35,10 @@ export default async function adminSystemRoutes(app: FastifyInstance) {
   app.get('/search', { preHandler: requireStaff() }, async req => {
     const q = parse(z.object({ q: z.string().trim().min(2).max(100) }), req.query).q;
     const like = { contains: q, mode: 'insensitive' as const };
+    const role = userOf(req).role;
     const [members, apps] = await Promise.all([
-      prisma.member.findMany({ where: { OR: [{ name: like }, { number: like }, { town: like }] }, take: 8, select: { number: true, name: true, town: true, status: true } }),
-      prisma.application.findMany({ where: { OR: [{ businessName: like }, { ref: like }, { town: like }] }, take: 8, select: { ref: true, businessName: true, town: true, stage: true } }),
+      can(role, 'members:read') ? prisma.member.findMany({ where: { OR: [{ name: like }, { number: like }, { town: like }] }, take: 8, select: { number: true, name: true, town: true, status: true } }) : [],
+      can(role, 'applications:read') ? prisma.application.findMany({ where: { OR: [{ businessName: like }, { ref: like }, { town: like }] }, take: 8, select: { ref: true, businessName: true, town: true, stage: true } }) : [],
     ]);
     return { members, applications: apps };
   });
@@ -46,7 +48,7 @@ export default async function adminSystemRoutes(app: FastifyInstance) {
     const d = await prisma.document.findUnique({ where: { id: (req.params as { id: string }).id }, include: { application: { select: { ref: true } }, member: { select: { number: true } } } });
     if (!d) throw notFound('Document');
     await audit(prisma, actorOf(req), d.application?.ref ?? d.member?.number ?? 'Documents', 'Document viewed', `${d.kind} · ${d.filename}`);
-    return sendDocument(reply, d, (req.query as { download?: string }).download === 'true');
+    return sendDocument(reply, d);
   });
 
   /* ---------- reports & audit ---------- */
@@ -120,9 +122,19 @@ export default async function adminSystemRoutes(app: FastifyInstance) {
     return reply.status(201).send({ id: u.id, email: u.email, name: u.name, role: u.role, title: u.title });
   });
   app.patch('/staff/:id', { preHandler: requireStaff('staff:manage') }, async req => {
-    const v = parse(z.object({ name: s.text(120), role: z.enum(STAFF_ROLES), title: z.string().trim().max(80).nullable(), active: z.boolean() }).partial(), req.body);
+    const v = parse(z.object({ name: s.line(120), role: z.enum(STAFF_ROLES), title: z.string().trim().max(80).nullable(), active: z.boolean(), resetMfa: z.literal(true) }).partial(), req.body);
     const u = await accounts.updateStaff({ ...actorOf(req), id: userOf(req).id }, (req.params as { id: string }).id, v);
-    return { id: u.id, email: u.email, name: u.name, role: u.role, title: u.title, active: u.active };
+    return { id: u.id, email: u.email, name: u.name, role: u.role, title: u.title, active: u.active, mfaEnabled: !!u.totpEnabledAt };
+  });
+
+  /* ---------- message delivery ---------- */
+  app.get('/notifications', { preHandler: requireStaff('staff:manage') }, async req =>
+    listNotifications(parse(z.object({ status: z.enum(['FAILED', 'PENDING']).default('FAILED') }), req.query).status));
+  app.post('/notifications/:id/retry', { preHandler: requireStaff('staff:manage') }, async req => {
+    const ok = await retryNotification((req.params as { id: string }).id);
+    if (!ok) throw conflict('This message cannot be re-sent. Send a new invitation or reset link instead.');
+    await audit(prisma, actorOf(req), 'Communications', 'Message re-queued', (req.params as { id: string }).id);
+    return { queued: true };
   });
   app.post('/staff/:id/resend-invite', { preHandler: requireStaff('staff:manage') }, async (req, reply) => {
     await accounts.resendInvite((req.params as { id: string }).id);

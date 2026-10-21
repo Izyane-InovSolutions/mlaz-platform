@@ -1,21 +1,20 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/db.js';
-import { STAFF, as, bearer, getApp, login, makeMember, resetDb } from './helpers.js';
+import { STAFF, as, bearer, getApp, login, makeMember, refreshWith, resetDb } from './helpers.js';
 
 describe('authentication', () => {
   beforeAll(resetDb);
 
   it('rotates refresh tokens and revokes every session when an old one is replayed', async () => {
-    const app = await getApp();
     const first = await login(STAFF.admin);
-    const r1 = await app.inject({ method: 'POST', url: '/api/auth/refresh', payload: { refreshToken: first.refreshToken } });
-    expect(r1.statusCode).toBe(200);
-    const second = r1.json();
-    expect(second.refreshToken).not.toBe(first.refreshToken);
+    const r1 = await refreshWith(first.refreshToken);
+    expect(r1.statusCode, r1.body).toBe(200);
+    const second = r1.cookies.find(c => c.name === 'mlaz_rt')!.value;
+    expect(second).not.toBe(first.refreshToken);
 
     // Replaying the first (already rotated) token is treated as theft.
-    expect((await app.inject({ method: 'POST', url: '/api/auth/refresh', payload: { refreshToken: first.refreshToken } })).statusCode).toBe(401);
-    expect((await app.inject({ method: 'POST', url: '/api/auth/refresh', payload: { refreshToken: second.refreshToken } })).statusCode).toBe(401);
+    expect((await refreshWith(first.refreshToken)).statusCode).toBe(401);
+    expect((await refreshWith(second)).statusCode).toBe(401);
   });
 
   it('locks out a deactivated user immediately', async () => {

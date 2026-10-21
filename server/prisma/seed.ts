@@ -33,6 +33,12 @@ async function storeDoc(kind: DocumentKind, filename: string, title: string) {
 }
 
 async function main() {
+  // Demo accounts share one known password; they must never exist on a live system.
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Refusing to seed demo data in production. Create the first admin with a real invite instead.');
+    process.exitCode = 1;
+    return;
+  }
   if (await prisma.user.count()) {
     console.log('Database already has data; skipping seed. Use `npm run db:reset` to start over.');
     return;

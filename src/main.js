@@ -4,17 +4,16 @@ import './styles.scss';
 import 'bootstrap';
 import { Offcanvas } from 'bootstrap';
 import { getSession, setSession, setRenderer, flushAfter, clearAfter, closeAllModals, nav, expose, icon, esc, initials } from './ui.js';
-import { can, signOut } from './api.js';
+import { can, ensureSession, signOut } from './api.js';
 import { PUBLIC, publicLayout, scrollPendingSection } from './public.js';
 import { ADMIN_NAV, ADMIN_PAGES, ADMIN_PAGE_PERM, adminSearch, refreshNavCounts } from './admin.js';
-import { MEMBER_NAV, MEMBER_PAGES, currentMember } from './member.js';
+import { MEMBER_NAV, MEMBER_PAGES, refreshMember } from './member.js';
 
 /* ================= APP SHELL ================= */
 function appLayout(session, page, inner) {
   const admin = session.role === 'admin';
   const navDef = admin ? ADMIN_NAV : MEMBER_NAV;
-  const m = admin ? null : currentMember();
-  const user = admin ? { name: session.name, sub: session.title, init: initials(session.name) } : { name: session.name || m.contact, sub: m.name, init: initials(m.name) };
+  const user = admin ? { name: session.name, sub: session.title, init: initials(session.name) } : { name: session.name, sub: session.memberName || '', init: initials(session.memberName || session.name) };
   // Only the pages the signed-in role can open; a section with nothing left is dropped.
   const sidebar = navDef.map(([section, items]) => {
     const visible = items.filter(it => !admin || !it[4] || can(it[4]));
@@ -98,10 +97,14 @@ async function route() {
   if (!sameView) { closeAllModals(); Offcanvas.getInstance(document.getElementById('sidebar'))?.hide(); }
 
   if (a === 'app') {
-    const s = getSession(), admin = s?.role === 'admin';
+    let s = getSession();
+    const admin = s?.role === 'admin';
     const toLogin = () => { setSession(null); nav(admin ? 'login/admin' : 'login/member'); };
-    // Console sessions must come from the API (old demo sessions have no tokens).
-    if (!s || (admin && !s.tokens) || (!admin && !currentMember())) return toLogin();
+    // The access token lives in memory only: after a reload it is restored from the httpOnly session cookie.
+    if (!s || !(await ensureSession())) return seq === renderSeq ? toLogin() : undefined;
+    if (seq !== renderSeq) return;
+    s = getSession();
+    if (admin && s.mfaSetupRequired) return nav('secure-account');
     const pages = admin ? ADMIN_PAGES : MEMBER_PAGES;
     const allowed = id => !!pages[id] && (!admin || !ADMIN_PAGE_PERM[id] || can(ADMIN_PAGE_PERM[id]));
     const page = allowed(b) ? b : Object.keys(pages).find(allowed);
@@ -110,7 +113,7 @@ async function route() {
     if (out instanceof Promise) {
       if (!sameView || !root.querySelector('.app-main')) root.innerHTML = appLayout(s, page, loading());
       let inner;
-      try { [inner] = await Promise.all([out, admin ? refreshNavCounts() : null]); } catch (e) {
+      try { [inner] = await Promise.all([out, admin ? refreshNavCounts() : refreshMember()]); } catch (e) {
         if (e.status === 401 || !getSession()) { if (seq === renderSeq) toLogin(); return; } // session ended
         inner = failed(e);
       }

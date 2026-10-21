@@ -55,17 +55,22 @@ export async function overview(user: AuthUser) {
   }
   lapsed.forEach(m => attention.push({ kind: `member_${m.status.toLowerCase()}`, title: `${m.name} ${m.status.toLowerCase()}`, detail: m.mofStatus !== 'VALID' ? 'MoF authorization expired' : m.suspensionReason ?? 'Dues and accreditation lapsed', target: m.number }));
 
+  // Each role sees only the figures it may act on: application pipeline for those who read applications,
+  // money for those who read payments.
+  const apps = can(user.role, 'applications:read'), money = can(user.role, 'payments:read');
   return {
     asAt: t,
     stats: {
       totalMembers, accredited, accreditedShare: totalMembers ? Math.round((accredited / totalMembers) * 1000) / 10 : 0,
-      duesDue, collectedYtd: num(collected._sum.amount), openApplications: open.length, mofToVerify: mofToVerify + renewals.length,
-      awaitingApproval, awaitingPayment, lapsedOrSuspended: await prisma.member.count({ where: { status: { not: 'ACTIVE' } } }),
+      duesDue, collectedYtd: money ? num(collected._sum.amount) : null,
+      openApplications: apps ? open.length : null, mofToVerify: apps ? mofToVerify + renewals.length : renewals.length,
+      awaitingApproval: apps ? awaitingApproval : null, awaitingPayment: apps ? awaitingPayment : null,
+      lapsedOrSuspended: await prisma.member.count({ where: { status: { not: 'ACTIVE' } } }),
     },
     growth,
     tiers: Object.fromEntries(tiers.map(x => [x.tierName, x._count])),
     regions: Object.fromEntries(regions.sort((a, b) => b._count - a._count).map(x => [x.province, x._count])),
-    pipeline: open.slice(0, 10).map(a => ({ ref: a.ref, businessName: a.businessName, town: a.town, stage: a.stage, displayStage: a.stage === 'MOF_REVIEW' && a.recommendedById ? 'AWAITING_APPROVAL' : a.stage, submittedAt: a.submittedAt })),
+    pipeline: apps ? open.slice(0, 10).map(a => ({ ref: a.ref, businessName: a.businessName, town: a.town, stage: a.stage, displayStage: a.stage === 'MOF_REVIEW' && a.recommendedById ? 'AWAITING_APPROVAL' : a.stage, submittedAt: a.submittedAt })) : [],
     attention,
   };
 }

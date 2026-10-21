@@ -3,12 +3,10 @@
 Money Lenders Association of Zambia membership platform, built by iZyane.
 UI: **Bootstrap 5.3** + **Bootstrap Icons** (themed in `src/styles.scss`), Inter font. API: [`server/`](server/README.md).
 
-**Integration status.** The public website, sign-in and the **Secretariat console** run on the API.
-The console shows each staff member only what their role allows. Approvals use real maker-checker: an officer
-recommends, and a *different* person (the Secretariat Admin) approves.
-The **member portal** pages still read the prototype's demo data in `localStorage` (`src/store.js`) and are wired next.
-Until then, member sign-in only opens the portal for members that also exist in the demo data (the seeded ones, such
-as `info@quicklend.zm`).
+**Everything runs on the API**: the public website, the Secretariat console and the member portal. No business data is
+kept in the browser. The console shows each staff member only what their role allows. Approvals use real
+maker-checker: an officer recommends, and a *different* person (the Secretariat Admin) approves.
+Security (sessions, two-factor sign-in, permissions) is described in [server/README.md](server/README.md#security).
 
 ## Run locally
 
@@ -46,7 +44,8 @@ URL to the API's `CORS_ORIGINS` and `PUBLIC_APP_URL`.
 | Sign in | `#/login/member`, `#/login/admin` | API: real accounts; demo password from the seed (`Mlaz@2026demo` by default) |
 | Set password | `#/set-password?token=…` | API: invite and password-reset links from emails |
 | Secretariat console | `#/app/...` | API: dashboard, members, applications (maker-checker), certificates, payments & bank-transfer review, expenses, communications, events, reports, settings & staff accounts |
-| Member portal | `#/app/...` | Demo data (being wired) |
+| Member portal | `#/app/...` | API: overview, certificate download and MoF renewal, dues payment (online or bank transfer with proof), events and tickets, customers with consented credit checks, announcements and resources, contact details, account security |
+| Secure account | `#/secure-account` | API: required two-factor set-up for staff when `REQUIRE_STAFF_2FA` is on |
 
 ## Demo script (full lifecycle, live)
 
@@ -71,7 +70,8 @@ All demo accounts use the seed password (`Mlaz@2026demo` by default).
 - `src/checkout.js`: online payment picker and the follow-the-payment dialog
 - `src/public.js`: landing, apply, track, sign in, set password, verify, directory
 - `src/admin.js`: Secretariat console pages (API, permission-aware)
-- `src/member.js`: member portal pages (demo data)
-- `src/ui.js`: session, shared helpers and Bootstrap components
-- `src/store.js`: demo data + localStorage persistence (removed once the console and portal are wired)
+- `src/member.js`: member portal pages (API)
+- `src/security.js`: two-factor sign-in, recovery codes, password change, sign out everywhere
+- `src/ui.js`: session display details, shared helpers and Bootstrap components
 - `src/styles.scss`: Bootstrap theme variables and custom styles
+- `vercel.json`: security headers for every page of the deployed UI

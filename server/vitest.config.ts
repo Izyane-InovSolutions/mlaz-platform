@@ -15,6 +15,10 @@ export default defineConfig({
       STORAGE_DIR: './storage-test',
       SMTP_URL: '',
       CREDIT_CHECKS_PER_DAY: '3',
+      STAFF_EMAIL_DOMAIN: 'mlaz.org.zm',
+      REQUIRE_STAFF_2FA: 'false',
+      TRUST_PROXY_HOPS: '0',
+      CORS_ORIGINS: 'http://localhost:5173',
     },
     globalSetup: './test/global-setup.ts',
     fileParallelism: false, // the files share one database

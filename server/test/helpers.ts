@@ -39,7 +39,13 @@ export async function resetDb() {
 export async function login(email: string, password = PASSWORD) {
   const res = await (await getApp()).inject({ method: 'POST', url: '/api/auth/login', payload: { email, password } });
   expect(res.statusCode, res.body).toBe(200);
-  return res.json() as { accessToken: string; refreshToken: string; user: { id: string } };
+  const refreshToken = res.cookies.find(c => c.name === 'mlaz_rt')?.value ?? '';
+  return { ...(res.json() as { accessToken: string; user: { id: string } }), refreshToken };
+}
+
+/** Calls /auth/refresh the way the browser does: cookie plus the anti-CSRF header. */
+export async function refreshWith(refreshToken: string, headers: Record<string, string> = { 'x-mlaz-csrf': '1' }) {
+  return (await getApp()).inject({ method: 'POST', url: '/api/auth/refresh', headers, cookies: { mlaz_rt: refreshToken }, payload: {} });
 }
 
 export const bearer = (token: string) => ({ authorization: `Bearer ${token}` });

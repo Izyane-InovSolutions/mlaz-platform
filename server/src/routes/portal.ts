@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { activity, audit } from '../lib/audit.js';
 import { today } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
-import { conflict, notFound } from '../lib/errors.js';
+import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { actorOf, memberIdOf, requireMember, userOf } from '../lib/guards.js';
 import { readMultipart, requireFile, storeFile } from '../lib/uploads.js';
 import { PROVINCES, parse, s } from '../lib/validate.js';
@@ -42,10 +42,14 @@ export default async function portalRoutes(app: FastifyInstance) {
 
   app.get('/profile', async req => memberSummary(prisma, await me(req)));
 
+  // Members keep their contact details current themselves. The business name, location and registration numbers appear
+  // on certificates and in the public directory, so only the Secretariat changes those.
+  const PROFILE_FIELDS = ['address', 'contactName', 'contactPhone', 'contactEmail'];
   app.patch('/profile', async req => {
+    const extra = Object.keys((req.body ?? {}) as object).filter(k => !PROFILE_FIELDS.includes(k));
+    if (extra.length) throw badRequest('Only contact details and address can be changed here. Ask the Secretariat to change other details.', { fields: extra.map(field => ({ field, message: 'Not editable' })) });
     const v = parse(z.object({
-      name: s.text(200), town: s.text(100), province: z.enum(PROVINCES), address: z.string().trim().max(300),
-      contactName: s.text(120), contactPhone: s.phone, contactEmail: s.email,
+      address: z.string().trim().max(300), contactName: s.line(120), contactPhone: s.phone, contactEmail: s.email,
     }).partial(), req.body);
     const m = await me(req);
     const changed = Object.entries(v).filter(([k, val]) => (m as Record<string, unknown>)[k] !== val).map(([k, val]) => `${k}: ${val}`);
@@ -151,7 +155,7 @@ export default async function portalRoutes(app: FastifyInstance) {
   app.get('/resources/:id/download', async (req, reply) => {
     const r = await prisma.resource.findUnique({ where: { id: (req.params as { id: string }).id }, include: { document: true } });
     if (!r) throw notFound('Resource');
-    return sendDocument(reply, r.document, true);
+    return sendDocument(reply, r.document);
   });
 
   /** The member's own documents (their application files, MoF renewals, proofs of payment). */

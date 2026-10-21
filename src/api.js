@@ -1,5 +1,9 @@
-// Client for the MLAZ API (see server/README.md). Signed-in calls carry the access token from the session and
-// refresh it automatically once when it expires. Errors come back as ApiError with the server's code and message.
+// Client for the MLAZ API (see server/README.md).
+//
+// Where credentials live:
+// - the refresh token is an httpOnly cookie the browser sends only to /api/auth; page scripts can never read it;
+// - the short-lived access token is kept in memory only (a reload gets a fresh one from the cookie);
+// - browser storage holds only display details (name, role, permissions), never a secret.
 import { getSession, setSession } from './ui.js';
 
 export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace(/\/+$/, '');
@@ -13,13 +17,18 @@ export class ApiError extends Error {
   get fields() { return this.details?.fields || []; }
 }
 
+let accessToken = null;
+
 async function send(path, { method = 'GET', body, form, headers = {}, auth = true }) {
-  const h = { ...headers };
-  const token = auth && getSession()?.tokens?.accessToken;
-  if (token) h.authorization = `Bearer ${token}`;
+  const authCall = path.startsWith('/auth/');
+  const h = { ...headers, ...(authCall && { 'x-mlaz-csrf': '1' }) };
+  if (auth && accessToken) h.authorization = `Bearer ${accessToken}`;
   if (body !== undefined) h['content-type'] = 'application/json';
   try {
-    return await fetch(API_URL + path, { method, headers: h, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined) });
+    return await fetch(API_URL + path, {
+      method, headers: h, body: form ?? (body !== undefined ? JSON.stringify(body) : undefined),
+      credentials: authCall ? 'include' : 'omit', // the session cookie only ever travels to /auth
+    });
   } catch (e) {
     throw new ApiError(0, 'NETWORK', 'We couldn’t reach the MLAZ server. Check your connection and try again.');
   }
@@ -31,16 +40,31 @@ async function toError(res) {
   return new ApiError(res.status, e.code || `HTTP_${res.status}`, e.message || 'Something went wrong. Please try again.', e.details);
 }
 
-// One refresh at a time, even if several calls hit an expired token together.
+/** Saves what the UI needs to show about the signed-in user. Tokens are deliberately not part of it. */
+function adopt(r, base = {}) {
+  accessToken = r.accessToken;
+  const u = r.user;
+  const session = {
+    ...base,
+    role: base.role || (u.permissions.length ? 'admin' : 'member'),
+    email: u.email, name: u.name, title: u.roleLabel, userId: u.id, permissions: u.permissions,
+    memberId: u.member?.number ?? null, memberName: u.member?.name ?? null,
+    mfaEnabled: u.mfaEnabled, mfaSetupRequired: !!r.mfaSetupRequired,
+    remember: !!r.remember,
+  };
+  setSession(session, session.remember);
+  return session;
+}
+
+// One refresh at a time, even if several calls need a token together.
 let refreshing = null;
-function refreshSession() {
+export function refreshSession() {
   const s = getSession();
-  if (!s?.tokens?.refreshToken) return Promise.resolve(false);
-  refreshing ??= fetch(`${API_URL}/auth/refresh`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ refreshToken: s.tokens.refreshToken }) })
+  if (!s) return Promise.resolve(false);
+  refreshing ??= send('/auth/refresh', { method: 'POST', body: { remember: !!s.remember }, auth: false })
     .then(async res => {
-      if (!res.ok) return false;
-      const r = await res.json();
-      setSession({ ...getSession(), tokens: { accessToken: r.accessToken, refreshToken: r.refreshToken } });
+      if (!res.ok) { accessToken = null; setSession(null); return false; }
+      adopt(await res.json(), getSession() || s);
       return true;
     })
     .catch(() => false)
@@ -48,15 +72,21 @@ function refreshSession() {
   return refreshing;
 }
 
+/** True when there is a usable session, restoring it from the cookie after a page load. */
+export async function ensureSession() {
+  if (!getSession()) return false;
+  return accessToken ? true : refreshSession();
+}
+
 /**
  * Calls the API. Options: method, body (JSON), form (FormData), headers, auth (send the session token; default true),
  * raw (return the Response, e.g. for file downloads).
  */
 export async function api(path, opts = {}) {
+  if (opts.auth !== false && getSession() && !accessToken) await refreshSession();
   let res = await send(path, opts);
-  if (res.status === 401 && opts.auth !== false && getSession()?.tokens) {
+  if (res.status === 401 && opts.auth !== false && getSession()) {
     if (await refreshSession()) res = await send(path, opts);
-    else setSession(null); // the session has ended; the router sends the user back to sign in
   }
   if (!res.ok) throw await toError(res);
   if (opts.raw) return res;
@@ -78,24 +108,36 @@ export async function download(path, opts = {}) {
 
 /* ================= SESSION ================= */
 
-/** Signs in and stores the session. portal: 'staff' | 'member'. */
+const roleFor = portal => (portal === 'staff' ? 'admin' : 'member');
+
+/**
+ * Signs in. Returns the session, or { mfaRequired, mfaToken } when the account uses two-factor sign-in; finish with
+ * completeSignIn(). portal: 'staff' | 'member'.
+ */
 export async function signIn(email, password, portal, remember) {
-  const r = await api('/auth/login', { method: 'POST', body: { email, password, portal }, auth: false });
-  const u = r.user;
-  const session = {
-    role: portal === 'staff' ? 'admin' : 'member',
-    email: u.email, name: u.name, title: u.roleLabel, userId: u.id, permissions: u.permissions,
-    memberId: u.member?.number ?? null, memberName: u.member?.name ?? null,
-    tokens: { accessToken: r.accessToken, refreshToken: r.refreshToken }, remember: !!remember,
-  };
-  setSession(session, remember);
-  return session;
+  const r = await api('/auth/login', { method: 'POST', body: { email, password, portal, remember: !!remember }, auth: false });
+  if (r.mfaRequired) return { mfaRequired: true, mfaToken: r.mfaToken };
+  return adopt(r, { role: roleFor(portal) });
 }
 
+export async function completeSignIn(mfaToken, code, portal) {
+  const r = await api('/auth/login/mfa', { method: 'POST', body: { mfaToken, code }, auth: false });
+  return adopt(r, { role: roleFor(portal) });
+}
+
+/** Takes over a new session the server issued (e.g. after changing the password). */
+export const adoptSession = r => adopt(r, getSession() || {});
+
 export async function signOut() {
-  const refreshToken = getSession()?.tokens?.refreshToken;
+  accessToken = null;
   setSession(null);
-  if (refreshToken) await api('/auth/logout', { method: 'POST', body: { refreshToken }, auth: false }).catch(() => {});
+  await send('/auth/logout', { method: 'POST', auth: false }).catch(() => {});
+}
+
+export async function signOutEverywhere() {
+  await api('/auth/logout-all', { method: 'POST' });
+  accessToken = null;
+  setSession(null);
 }
 
 export const can = permission => !!getSession()?.permissions?.includes(permission);
@@ -112,10 +154,13 @@ export function publicConfig() {
 /* ================= APPLICATION TRACKING TOKENS ================= */
 
 // The tracking token from the application confirmation (or the emailed link), remembered in this browser per reference.
+// It only opens that one application's status page, and is never sent anywhere but the API.
 const TRACK_KEY = 'mlaz-track';
+export const isTrackingToken = t => typeof t === 'string' && /^[A-Za-z0-9_-]{20,64}$/.test(t);
 const trackMap = () => { try { return JSON.parse(localStorage.getItem(TRACK_KEY)) || {}; } catch (e) { return {}; } };
-export const trackToken = ref => trackMap()[ref] || null;
+export const trackToken = ref => { const t = trackMap()[ref]; return isTrackingToken(t) ? t : null; };
 export function saveTrackToken(ref, token) {
+  if (!isTrackingToken(token)) return;
   try { localStorage.setItem(TRACK_KEY, JSON.stringify({ ...trackMap(), [ref]: token })); } catch (e) { /* ignore */ }
 }
 export function forgetTrackToken(ref) {
