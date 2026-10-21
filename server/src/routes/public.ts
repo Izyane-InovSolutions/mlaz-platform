@@ -4,7 +4,7 @@ import { applicantActor } from '../lib/audit.js';
 import { today } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
 import { conflict, notFound } from '../lib/errors.js';
-import { readMultipart, requireFile, storeFile } from '../lib/uploads.js';
+import { commitFiles, readMultipart, requireFile, storeFile } from '../lib/uploads.js';
 import { PROVINCES, parse, s } from '../lib/validate.js';
 import * as applications from '../services/applications.js';
 import { listAnnouncements } from '../services/comms.js';
@@ -81,7 +81,7 @@ export default async function publicRoutes(app: FastifyInstance) {
     const { fields, files } = await readMultipart(req);
     const v = parse(z.object({ bankRef: s.text(60) }), fields);
     const stored = await storeFile(requireFile(files, 'proof', 'proof of payment'), 'PROOF_OF_PAYMENT');
-    return paymentView(await attachProof(applicantActor(a.contactName, req.ip), p.id, v.bankRef, stored));
+    return paymentView(await commitFiles([stored], () => attachProof(applicantActor(a.contactName, req.ip), p.id, v.bankRef, stored)));
   });
 
   app.get('/applications/:ref/payments/:payRef/receipt.pdf', async (req, reply) => {

@@ -5,7 +5,7 @@ import { today } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { actorOf, memberIdOf, requireMember, userOf } from '../lib/guards.js';
-import { readMultipart, requireFile, storeFile } from '../lib/uploads.js';
+import { commitFiles, readMultipart, requireFile, storeFile } from '../lib/uploads.js';
 import { PROVINCES, parse, s } from '../lib/validate.js';
 import { listAnnouncements, listResources } from '../services/comms.js';
 import * as events from '../services/events.js';
@@ -79,7 +79,7 @@ export default async function portalRoutes(app: FastifyInstance) {
     const { fields, files } = await readMultipart(req);
     const v = parse(z.object({ mofRef: s.text(60) }), fields);
     const stored = await storeFile(requireFile(files, 'file', 'renewed MoF authorization'), 'MOF_AUTHORIZATION');
-    return reply.status(201).send(await submitRenewal(actorOf(req), memberIdOf(req), v.mofRef, stored));
+    return reply.status(201).send(await commitFiles([stored], () => submitRenewal(actorOf(req), memberIdOf(req), v.mofRef, stored)));
   });
 
   /* ---------- dues & payments ---------- */
@@ -127,7 +127,7 @@ export default async function portalRoutes(app: FastifyInstance) {
     const { fields, files } = await readMultipart(req);
     const v = parse(z.object({ bankRef: s.text(60) }), fields);
     const stored = await storeFile(requireFile(files, 'proof', 'proof of payment'), 'PROOF_OF_PAYMENT');
-    return paymentView(await attachProof(actorOf(req), p.id, v.bankRef, stored));
+    return paymentView(await commitFiles([stored], () => attachProof(actorOf(req), p.id, v.bankRef, stored)));
   });
   app.get('/payments/:ref/receipt.pdf', async (req, reply) => {
     const p = await ownPayment(req);

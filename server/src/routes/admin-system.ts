@@ -87,7 +87,8 @@ export default async function adminSystemRoutes(app: FastifyInstance) {
   }));
 
   app.put('/settings/tiers/:name', { preHandler: requireStaff('settings:write') }, async req => {
-    const name = (req.params as { name: string }).name;
+    // Tier names appear in the console, broadcast audiences and certificates: letters, digits and simple punctuation only.
+    const { name } = parse(z.object({ name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 &()+.-]{0,39}$/, 'Use letters, digits, spaces and & ( ) + . - only (up to 40 characters)') }), req.params);
     const v = parse(z.object({ annualDues: s.money, description: z.string().trim().max(500).optional(), sortOrder: z.coerce.number().int().optional(), active: z.boolean().optional() }), req.body);
     const before = await prisma.tier.findUnique({ where: { name } });
     const t = await prisma.tier.upsert({ where: { name }, create: { name, ...v }, update: v });

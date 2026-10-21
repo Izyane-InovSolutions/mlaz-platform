@@ -4,7 +4,7 @@ import { prisma } from '../lib/db.js';
 import { notFound } from '../lib/errors.js';
 import { actorOf, requireStaff } from '../lib/guards.js';
 import { sendDocument } from './helpers.js';
-import { readMultipart, requireFile, storeFile } from '../lib/uploads.js';
+import { commitFiles, readMultipart, requireFile, storeFile } from '../lib/uploads.js';
 import { parse, s } from '../lib/validate.js';
 import * as comms from '../services/comms.js';
 import * as events from '../services/events.js';
@@ -51,7 +51,7 @@ export default async function adminEngageRoutes(app: FastifyInstance) {
     const { fields, files } = await readMultipart(req);
     const v = parse(comms.resourceSchema, fields);
     const stored = await storeFile(requireFile(files, 'file', 'document'), 'RESOURCE');
-    return reply.status(201).send(await comms.addResource(actorOf(req), v, stored));
+    return reply.status(201).send(await commitFiles([stored], () => comms.addResource(actorOf(req), v, stored)));
   });
   app.delete('/resources/:id', { preHandler: requireStaff('comms:write') }, async (req, reply) => {
     await comms.deleteResource(actorOf(req), (req.params as Id).id);

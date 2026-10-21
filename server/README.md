@@ -114,12 +114,17 @@ Every item below is enforced on the server and covered by tests (`test/security.
 - The secrets are present, high-entropy and all different.
 - HTTPS-only cookies, `https://` origins and app URL.
 - No sandbox payments unless `ALLOW_SANDBOX_IN_PRODUCTION=true`.
+- `SMTP_URL` is set (without it, set-password and reset links would only be written to the log).
+- `REQUIRE_STAFF_2FA=true`.
+- `TRUST_PROXY_HOPS` is set explicitly (`0` if clients connect directly, `1` behind one load balancer).
 - The demo seed refuses to run in production.
+
+The log email/SMS drivers redact one-time links in every environment.
 
 **Still your responsibility when deploying**
 - Serve the UI and the API over HTTPS on the same site (e.g. `app.mlaz.org.zm` + `api.mlaz.org.zm`) so the `SameSite`
   cookie works.
-- Set `TRUST_PROXY_HOPS` to match your load balancer and turn on `REQUIRE_STAFF_2FA`.
+- Set `TRUST_PROXY_HOPS` to the real number of proxies in front of the API.
 - Run Postgres with encrypted disks/backups and a least-privilege database user.
 - Rate limits are per instance (in memory). Add a shared store (Redis) if you run several API replicas.
 - The UI's CSP needs `'unsafe-inline'` for scripts because pages use inline event handlers. Every handler argument is

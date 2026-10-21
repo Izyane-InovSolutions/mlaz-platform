@@ -19,9 +19,12 @@ const dummy = () => (dummyHash ??= hashPassword(randomToken()));
 
 /* ================= BRUTE-FORCE PROTECTION ================= */
 
-// 5 failures within 15 minutes locks the key for 15 minutes. Keys are hashed emails (or a user id for 2FA codes),
-// so an unknown email locks exactly like a real one and a lockout reveals nothing.
-const MAX_FAILURES = 5, WINDOW_MINUTES = 15, LOCK_MINUTES = 15;
+// Failures within 15 minutes lock a key for 15 minutes. Keys are hashed emails (or a user id for 2FA codes), so an
+// unknown email locks exactly like a real one and a lockout reveals nothing.
+// Passwords are throttled twice: 5 failures lock that email for the address they came from, and 30 from any number of
+// addresses lock the email everywhere. Someone guessing from one address is stopped quickly, yet cannot lock the
+// real user out with a handful of attempts; a spread-out attack is still capped per account.
+const MAX_FAILURES = 5, ACCOUNT_MAX_FAILURES = 30, WINDOW_MINUTES = 15, LOCK_MINUTES = 15;
 
 async function assertNotLocked(key: string) {
   const t = await prisma.loginThrottle.findUnique({ where: { key } });
@@ -31,20 +34,34 @@ async function assertNotLocked(key: string) {
   }
 }
 
-async function recordFailure(key: string) {
+async function recordFailure(key: string, max = MAX_FAILURES) {
   const rows = await prisma.$queryRaw<{ failures: number }[]>`
     INSERT INTO "LoginThrottle" ("key", "failures", "windowStart") VALUES (${key}, 1, now())
     ON CONFLICT ("key") DO UPDATE SET
       "failures" = CASE WHEN "LoginThrottle"."windowStart" < now() - make_interval(mins => ${WINDOW_MINUTES}) THEN 1 ELSE "LoginThrottle"."failures" + 1 END,
       "windowStart" = CASE WHEN "LoginThrottle"."windowStart" < now() - make_interval(mins => ${WINDOW_MINUTES}) THEN now() ELSE "LoginThrottle"."windowStart" END
     RETURNING "failures"`;
-  if (rows[0].failures >= MAX_FAILURES) {
+  if (rows[0].failures >= max) {
     await prisma.loginThrottle.update({ where: { key }, data: { lockedUntil: new Date(Date.now() + LOCK_MINUTES * 60e3), failures: 0, windowStart: new Date() } });
   }
 }
 const clearFailures = (key: string) => prisma.loginThrottle.deleteMany({ where: { key } });
 const emailKey = (email: string) => `email:${sha256(email.toLowerCase())}`;
+const sourcePrefix = (email: string) => `login:${sha256(email.toLowerCase())}:`;
+const sourceKey = (email: string, ip: string) => `${sourcePrefix(email)}${sha256(ip)}`;
 const mfaKey = (userId: string) => `mfa:${userId}`;
+
+/** Password checks for an email, from one address. */
+async function assertPasswordNotLocked(email: string, ip: string) {
+  await assertNotLocked(sourceKey(email, ip));
+  await assertNotLocked(emailKey(email));
+}
+async function recordPasswordFailure(email: string, ip: string) {
+  await recordFailure(sourceKey(email, ip));
+  await recordFailure(emailKey(email), ACCOUNT_MAX_FAILURES);
+}
+const clearPasswordFailures = (email: string) =>
+  prisma.loginThrottle.deleteMany({ where: { OR: [{ key: emailKey(email) }, { key: { startsWith: sourcePrefix(email) } }] } });
 
 /* ================= SESSIONS ================= */
 
@@ -81,15 +98,15 @@ async function issueSession(user: User, remember: boolean) {
 export type Session = Awaited<ReturnType<typeof issueSession>>;
 
 export async function login(email: string, password: string, portal: 'staff' | 'member' | undefined, remember: boolean, ip: string) {
-  const key = emailKey(email);
-  await assertNotLocked(key);
+  await assertPasswordNotLocked(email, ip);
   const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   const ok = user?.passwordHash ? await verifyPassword(user.passwordHash, password) : (await verifyPassword(await dummy(), password), false);
   if (!user || !ok || !user.active) {
-    await recordFailure(key);
+    await recordPasswordFailure(email, ip);
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect.');
   }
-  await clearFailures(key);
+  // Clears this address and the account-wide count; other addresses that failed stay locked.
+  await prisma.loginThrottle.deleteMany({ where: { key: { in: [sourceKey(email, ip), emailKey(email)] } } });
   if (portal === 'staff' && !isStaffRole(user.role)) throw forbidden('This account does not have Secretariat access.', 'WRONG_PORTAL');
   if (portal === 'member' && isStaffRole(user.role)) throw forbidden('Secretariat accounts sign in to the Secretariat console.', 'WRONG_PORTAL');
   if (user.totpEnabledAt) return { mfaRequired: true as const, mfaToken: signMfaToken(user.id, remember) };
@@ -212,14 +229,23 @@ export async function resendInvite(userId: string) {
   });
 }
 
-/** Always succeeds, so the response does not reveal whether an email has an account. */
+// Unknown emails return at once and known ones write a token first; answering no sooner than this hides the difference.
+export const RESET_MIN_MS = 400;
+
+/** Always succeeds, and in the same time either way, so the response does not reveal whether an email has an account. */
 export async function requestPasswordReset(email: string) {
-  const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
-  if (!user?.active) return;
-  await prisma.$transaction(async tx => {
-    const url = setPasswordUrl(await createToken(tx, user.id, 'PASSWORD_RESET', 1));
-    await notify(tx, { email: user.email }, T.passwordReset(user.name, url));
-  });
+  const started = Date.now();
+  try {
+    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase() } });
+    if (!user?.active) return;
+    await prisma.$transaction(async tx => {
+      const url = setPasswordUrl(await createToken(tx, user.id, 'PASSWORD_RESET', 1));
+      await notify(tx, { email: user.email }, T.passwordReset(user.name, url));
+    });
+  } finally {
+    const wait = RESET_MIN_MS - (Date.now() - started);
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  }
 }
 
 /** Sets a password from an invite or reset link, and ends every existing session of the user. */
@@ -237,15 +263,17 @@ export async function setPassword(token: string, password: string, ip: string) {
     await endAllSessions(row.userId, tx);
     await audit(tx, actorOfUser(row.user, ip), 'Accounts', row.purpose === 'INVITE' ? 'Account activated' : 'Password reset');
   });
-  await clearFailures(emailKey(row.user.email));
+  await clearPasswordFailures(row.user.email);
   return { email: row.user.email };
 }
 
 /** Changes the password, ends every other session and returns a fresh one for this device. */
 export async function changePassword(user: AuthUser, current: string, next: string, remember: boolean, ip: string) {
   const u = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+  // Same throttle as sign-in: a stolen session must not become a way to guess the password.
+  await assertPasswordNotLocked(u.email, ip);
   if (!u.passwordHash || !(await verifyPassword(u.passwordHash, current))) {
-    await recordFailure(emailKey(u.email));
+    await recordPasswordFailure(u.email, ip);
     throw badRequest('Your current password is incorrect.');
   }
   if (current === next) throw badRequest('Choose a password different from your current one.');
@@ -279,17 +307,32 @@ export async function confirmMfaSetup(user: AuthUser, code: string, ip: string) 
   return { recoveryCodes: codes };
 }
 
+/**
+ * Checks an authenticator code for a sensitive change. Throttled like the sign-in code (same key), and the code is
+ * claimed atomically, so it cannot be guessed at length or used twice in parallel.
+ */
 async function assertSecondFactor(u: User, code: string) {
+  const key = mfaKey(u.id);
+  await assertNotLocked(key);
   const step = u.totpSecret ? verifyTotp(decrypt(u.totpSecret), code.replace(/\s/g, ''), u.totpLastStep) : null;
-  if (step === null) throw badRequest('That authenticator code is not valid.');
-  await prisma.user.update({ where: { id: u.id }, data: { totpLastStep: step } });
+  const claimed = step !== null
+    && (await prisma.user.updateMany({ where: { id: u.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] }, data: { totpLastStep: step } })).count === 1;
+  if (!claimed) {
+    await recordFailure(key);
+    throw badRequest('That authenticator code is not valid.');
+  }
+  await clearFailures(key);
 }
 
 export async function disableMfa(user: AuthUser, password: string, code: string, ip: string) {
   const u = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
   if (!u.totpEnabledAt) throw conflict('Two-factor sign-in is not on.');
   if (needsMfaSetup({ role: u.role, totpEnabledAt: null })) throw forbidden('Two-factor sign-in is required for Secretariat accounts.');
-  if (!u.passwordHash || !(await verifyPassword(u.passwordHash, password))) throw badRequest('Your password is incorrect.');
+  await assertNotLocked(mfaKey(u.id));
+  if (!u.passwordHash || !(await verifyPassword(u.passwordHash, password))) {
+    await recordFailure(mfaKey(u.id));
+    throw badRequest('Your password is incorrect.');
+  }
   await assertSecondFactor(u, code);
   await prisma.user.update({ where: { id: u.id }, data: { totpEnabledAt: null, totpSecret: null, totpLastStep: null, recoveryCodes: [] } });
   await audit(prisma, actorOfUser(u, ip), 'Accounts', 'Two-factor sign-in turned off');

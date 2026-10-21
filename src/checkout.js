@@ -18,7 +18,7 @@ function fields(method, phone) {
 /** The method picker. `methods` is publicConfig().paymentMethods: [{ code, label }]. */
 export const checkoutForm = (id, { methods, phone = '' }) => `<div id="${id}" data-phone="${esc(phone)}">
   <label class="form-label small fw-medium">Payment method</label>
-  <select class="form-select mb-3" name="method" onchange="checkoutMethodChange('${id}')">${methods.map(m => `<option value="${m.code}">${esc(m.label)}</option>`).join('')}</select>
+  <select class="form-select mb-3" name="method" onchange="checkoutMethodChange('${id}')">${methods.map(m => `<option value="${esc(m.code)}">${esc(m.label)}</option>`).join('')}</select>
   <div data-fields>${fields(methods[0]?.code, phone)}</div></div>`;
 
 function checkoutMethodChange(id) {

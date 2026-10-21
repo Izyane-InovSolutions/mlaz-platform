@@ -4,6 +4,7 @@ import { type Db, prisma } from '../lib/db.js';
 import { fmtDate } from '../lib/dates.js';
 import { notFound } from '../lib/errors.js';
 import { K } from '../lib/money.js';
+import { redactSecrets } from '../lib/tokens.js';
 import { mailer, sms } from '../providers/messaging.js';
 
 export interface Message {
@@ -150,8 +151,7 @@ export async function processOutbox(limit = 25) {
   return claimed.length;
 }
 
-/** Strips one-time tokens (set-password, tracking) from a message. */
-export const redactSecrets = (text: string) => text.replace(/([?&](?:token|t)=)[\w-]+/g, '$1[redacted]');
+export { redactSecrets };
 
 /* ================= OPERATIONS ================= */
 

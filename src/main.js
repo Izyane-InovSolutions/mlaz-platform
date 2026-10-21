@@ -91,7 +91,9 @@ async function route() {
   const seq = ++renderSeq;
   // Links in emails carry a query string, e.g. #/track/APP-2045?t=… or #/set-password?token=…
   const [path, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
-  const [a = '', b, c] = path.split('/').map(decodeURIComponent);
+  // A malformed escape (e.g. a stray "%") is kept as typed rather than throwing and blanking the page.
+  const decode = s => { try { return decodeURIComponent(s); } catch (e) { return s; } };
+  const [a = '', b, c] = path.split('/').map(decode);
   const root = document.getElementById('root');
   const sameView = location.hash === lastHash;
   if (!sameView) { closeAllModals(); Offcanvas.getInstance(document.getElementById('sidebar'))?.hide(); }

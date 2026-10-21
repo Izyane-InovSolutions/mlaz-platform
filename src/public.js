@@ -444,20 +444,20 @@ const needLink = (ref, invalid) => `<div class="card border-0 shadow-sm"><div cl
 
 function trackCard(a, cfg) {
   if (!isAppRef(a.ref)) throw new Error('Unexpected application reference');
-  const ref = esc(a.ref); // validated format: digits and "APP-" only
+  const ref = esc(a.ref), refArg = jsArg(a.ref); // validated format: digits and "APP-" only
   const fees = `<div class="bg-body-tertiary rounded p-3 small">
     <div class="d-flex justify-content-between"><span>Joining fee</span><span>${K(a.fees.joiningFee)}</span></div>
     <div class="d-flex justify-content-between"><span>${esc(a.tier)} annual dues</span><span>${K(a.fees.annualDues)}</span></div>
     <div class="d-flex justify-content-between fw-semibold border-top mt-2 pt-2"><span>Total due</span><span>${K(a.fees.total)}</span></div></div>`;
   const payBlock = `<div class="row g-4"><div class="col-md-6">${fees}</div>
     <div class="col-md-6">${checkoutForm('tpay', { methods: cfg.paymentMethods })}
-      <button class="btn btn-primary w-100 mt-3" onclick="trackPay('${ref}',this)">Pay ${K(a.fees.total)}</button>
+      <button class="btn btn-primary w-100 mt-3" onclick="trackPay(${refArg},this)">Pay ${K(a.fees.total)}</button>
       <div class="small text-body-secondary text-center mt-2">${icon('lock', 'me-1')}Secured payment · receipt emailed automatically</div></div></div>`;
 
   let action = '';
   if (a.stage === 'DETAILS') action = `${a.returnNote ? alertBox('danger', 'arrow-return-left', `<b>Returned by the Secretariat:</b> ${esc(a.returnNote)}`) : ''}
     <h3 class="h6 fw-semibold">Upload your Ministry of Finance authorization</h3>
-    <form id="mofform" class="row g-3" novalidate onsubmit="event.preventDefault();trackUpload('${ref}',this)">
+    <form id="mofform" class="row g-3" novalidate onsubmit="event.preventDefault();trackUpload(${refArg},this)">
       <div class="col-12"><label class="form-label small fw-medium">Authorization reference</label><input class="form-control" name="mofRef" required placeholder="MoF/ML/2026/0000"><div class="invalid-feedback">Required.</div></div>
       <div class="col-12"><label class="form-label small fw-medium">Document <span class="text-body-secondary fw-normal">(PDF, JPG or PNG, up to 10 MB)</span></label><input class="form-control" type="file" name="mofFile" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach the authorization document.</div></div>
       <div class="col-12"><button class="btn btn-primary">Submit for verification</button></div>
@@ -473,7 +473,7 @@ function trackCard(a, cfg) {
       action = `${alertBox('success', 'check-circle', 'Your MoF authorization has been verified. Complete your bank transfer, then upload the proof of payment.')}
         <div class="row g-4"><div class="col-md-6"><div class="bg-body-tertiary rounded p-3 small d-grid gap-1"><div class="fw-semibold mb-1">Pay ${K(p.amount)} into this account</div>
           ${row('Bank', esc(b.bank))}${row('Account name', esc(b.name))}${row('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${row('Branch', esc(b.branch))}${row('Payment reference', `<span class="font-monospace">${esc(p.ref)}</span>`)}</div></div>
-        <div class="col-md-6"><form id="proofform" class="d-grid gap-2" novalidate onsubmit="event.preventDefault();trackProof('${ref}',${jsArg(p.ref)},this)">
+        <div class="col-md-6"><form id="proofform" class="d-grid gap-2" novalidate onsubmit="event.preventDefault();trackProof(${refArg},${jsArg(p.ref)},this)">
           <div><label class="form-label small fw-medium">Your bank transaction reference</label><input class="form-control" name="bankRef" required placeholder="e.g. FT26285ABC12"><div class="invalid-feedback">Required.</div></div>
           <div><label class="form-label small fw-medium">Proof of payment <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="proof" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach your deposit slip or transfer confirmation.</div></div>
           <button class="btn btn-primary">Submit proof of payment</button></form></div></div>
@@ -492,8 +492,8 @@ function trackCard(a, cfg) {
   if (a.stage === 'ACCREDITED') action = `${alertBox('success', 'award', `Congratulations, you are now an accredited MLAZ member. Your member number is <b>${esc(a.member?.number)}</b>.`)}
     <p class="small">We’ve emailed <b>${esc(a.contactEmail)}</b> a link to set your member portal password. Use it within 7 days.</p>
     <div class="d-flex flex-wrap gap-2">
-      <button class="btn btn-outline-primary" onclick="trackCert('${ref}',this)">${icon('award', 'me-1')} Download certificate</button>
-      ${a.payment?.status === 'SUCCESS' ? `<button class="btn btn-outline-secondary" onclick="trackReceipt('${ref}',${jsArg(a.payment.ref)},this)">${icon('receipt', 'me-1')} Receipt</button>` : ''}
+      <button class="btn btn-outline-primary" onclick="trackCert(${refArg},this)">${icon('award', 'me-1')} Download certificate</button>
+      ${a.payment?.status === 'SUCCESS' ? `<button class="btn btn-outline-secondary" onclick="trackReceipt(${refArg},${jsArg(a.payment.ref)},this)">${icon('receipt', 'me-1')} Receipt</button>` : ''}
       <a class="btn btn-primary" href="#/login/member">Go to member portal</a></div>`;
 
   if (a.stage === 'REJECTED') action = alertBox('danger', 'x-octagon', `<b>This application was not approved.</b> ${esc(a.rejectionReason || '')}<div class="mt-1">Contact the Secretariat on secretariat@mlaz.org.zm if you have questions.</div>`, 'mb-0 fs-6');

@@ -92,4 +92,5 @@ class SandboxProvider implements PaymentProvider {
 const providers: Record<string, PaymentProvider> = { sandbox: new SandboxProvider() };
 
 export const gateway = () => providers[config.PAYMENT_PROVIDER];
-export const providerByName = (name: string) => providers[name];
+// Own keys only: a name like "constructor" or "__proto__" (from the webhook URL) must not resolve to Object's members.
+export const providerByName = (name: string): PaymentProvider | undefined => (Object.hasOwn(providers, name) ? providers[name] : undefined);

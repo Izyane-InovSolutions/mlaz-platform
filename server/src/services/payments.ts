@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { LineType, Payment, PaymentMethod, PaymentPurpose, PaymentStatus, Prisma as P } from '../generated/prisma/client.js';
 import { type Actor, SYSTEM, activity, audit } from '../lib/audit.js';
-import { type Tx, prisma } from '../lib/db.js';
+import { type Tx, lockKey, prisma } from '../lib/db.js';
 import { conflict, notFound } from '../lib/errors.js';
 import { nextRef } from '../lib/ids.js';
 import { K, num, sum } from '../lib/money.js';
@@ -32,6 +32,10 @@ export const offlineSchema = z.object({ method: z.enum(['BANK_TRANSFER', 'CASH']
 // A gateway payment not settled within this time is marked failed; a later success from the gateway is still honoured.
 const EXPIRED_REASON = 'No confirmation from the payment provider (timed out)';
 const REPLACED_REASON = 'Replaced by a new payment attempt';
+/** Set on pending event payments when the event is cancelled. A late success is still recorded, and flagged for refund. */
+export const EVENT_CANCELLED_REASON = 'Event cancelled';
+// Payments the server gave up on although the payer may still approve them at the gateway.
+const LATE_SUCCESS_REASONS = new Set([EXPIRED_REASON, REPLACED_REASON, EVENT_CANCELLED_REASON]);
 const GATEWAY_TIMEOUT_MIN = 30;
 const IN_PROGRESS_MIN = 3;
 const BANK_PROOF_DAYS = 7;
@@ -71,11 +75,16 @@ export async function createPayment(tx: Tx, p: NewPayment) {
   });
 }
 
+/** Serialises payment decisions for one target, e.g. { applicationId } or { memberId, purpose: 'DUES' }. */
+export const lockPayments = (tx: Tx, where: P.PaymentWhereInput) => lockKey(tx, `payments:${JSON.stringify(where)}`);
+
 /**
  * Refuses a second payment for the same thing while one is still in flight, and clears out stale attempts.
  * `where` identifies the target (an application, a member's dues, ...).
  */
 export async function guardPending(tx: Tx, where: P.PaymentWhereInput) {
+  // Two "pay now" requests for the same target must not both see "nothing pending" and both create a payment.
+  await lockPayments(tx, where);
   const pending = await tx.payment.findMany({ where: { ...where, status: 'PENDING' }, include: { documents: { select: { id: true } } } });
   for (const p of pending) {
     if (p.method === 'BANK_TRANSFER' && p.documents.length) throw conflict(`Payment ${p.ref} is awaiting confirmation by MLAZ Finance.`, 'PAYMENT_AWAITING_CONFIRMATION', { ref: p.ref });
@@ -123,7 +132,7 @@ export async function settleInTx(tx: Tx, paymentId: string, outcome: Outcome, ac
   const p = await tx.payment.findUniqueOrThrow({ where: { id: paymentId }, include: FULL });
   if (outcome.status === 'PENDING') return p;
   const lateSuccess = outcome.status === 'SUCCESS' && p.provider !== 'manual'
-    && (p.status === 'CANCELLED' || p.status === 'FAILED') && (p.failureReason === EXPIRED_REASON || p.failureReason === REPLACED_REASON);
+    && (p.status === 'CANCELLED' || p.status === 'FAILED') && LATE_SUCCESS_REASONS.has(p.failureReason ?? '');
   if (p.status !== 'PENDING' && !lateSuccess) return p;
 
   const target = p.application?.ref ?? p.member?.number ?? 'Payments';

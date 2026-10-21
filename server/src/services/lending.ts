@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { type Actor, audit } from '../lib/audit.js';
 import type { AuthUser } from '../lib/auth.js';
 import { dateOnly, today } from '../lib/dates.js';
-import { prisma } from '../lib/db.js';
+import { lockKey, prisma } from '../lib/db.js';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.js';
 import { inGoodStanding } from './membership.js';
 import { num } from '../lib/money.js';
@@ -23,6 +23,9 @@ export const loanSchema = z.object({
   status: z.enum(['CURRENT', 'ARREARS', 'CLOSED']).default('CURRENT'),
   issuedAt: s.date,
 });
+// For edits: a field left out stays as it is. (zod applies .default() even inside .partial(), which would reset the
+// status to CURRENT and blank the phone on every edit.)
+const loanUpdateSchema = loanSchema.extend({ borrowerPhone: s.optionalText(20).unwrap(), status: z.enum(['CURRENT', 'ARREARS', 'CLOSED']) }).partial();
 
 const loanView = (l: P.LoanGetPayload<object>) => ({
   id: l.id, borrowerNrc: l.borrowerNrc, borrowerName: l.borrowerName, borrowerPhone: l.borrowerPhone, amount: l.amount, balance: l.balance,
@@ -73,7 +76,7 @@ async function ownLoan(memberId: string, id: string) {
 
 export async function updateLoan(memberId: string, id: string, body: unknown) {
   const l = await ownLoan(memberId, id);
-  const v = loanSchema.partial().parse(body);
+  const v = loanUpdateSchema.parse(body);
   const amount = v.amount ?? num(l.amount), balance = v.balance ?? num(l.balance);
   if (balance > amount) throw badRequest('The balance cannot be more than the loan amount.');
   const data = { ...v, ...(v.issuedAt && { issuedAt: dateOnly(v.issuedAt) }) };
@@ -97,17 +100,21 @@ export async function creditCheck(user: AuthUser, actor: Actor, body: unknown) {
   // Bureau access is a privilege of accreditation: lapsed or suspended lenders lose it.
   const standing = await prisma.member.findUniqueOrThrow({ where: { id: memberId } });
   if (!inGoodStanding(standing)) throw forbidden('Credit checks are available to members in good standing only.', 'NOT_IN_GOOD_STANDING');
-  const used = await prisma.creditCheck.count({ where: { memberId, createdAt: { gte: today() } } });
-  if (used >= config.CREDIT_CHECKS_PER_DAY) throw tooMany(`Your daily limit of ${config.CREDIT_CHECKS_PER_DAY} credit checks has been reached.`);
-  const record = await bureau.lookup(v.nrc);
   const m = await prisma.member.findUniqueOrThrow({ where: { id: memberId }, select: { number: true } });
-  await prisma.$transaction(async tx => {
+  // Count, look up and record under a per-member lock, so parallel requests cannot all pass the daily cap before any
+  // of them is recorded. The timeout leaves room for a slow bureau.
+  const { used, record } = await prisma.$transaction(async tx => {
+    await lockKey(tx, `credit-checks:${memberId}`);
+    const used = await tx.creditCheck.count({ where: { memberId, createdAt: { gte: today() } } });
+    if (used >= config.CREDIT_CHECKS_PER_DAY) throw tooMany(`Your daily limit of ${config.CREDIT_CHECKS_PER_DAY} credit checks has been reached.`);
+    const record = await bureau.lookup(v.nrc);
     await tx.creditCheck.create({
       data: { memberId, userId: user.id, nrc: v.nrc, purpose: v.purpose, consent: true, found: !!record, score: record?.score, report: (record ?? undefined) as P.InputJsonValue | undefined },
     });
     if (record) await tx.loan.updateMany({ where: { memberId, borrowerNrc: v.nrc }, data: { lastScore: record.score, lastCheckedAt: new Date() } });
     await audit(tx, actor, m.number, 'Credit check', `NRC ${v.nrc} · ${v.purpose} · ${record ? `score ${record.score}` : 'no bureau record'}`);
-  });
+    return { used, record };
+  }, { timeout: 20_000 });
   const loans = await prisma.loan.findMany({ where: { memberId, borrowerNrc: v.nrc } });
   return {
     found: !!record,

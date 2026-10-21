@@ -17,3 +17,6 @@ export function safeEqual(a: string, b: string) {
 export const trackingToken = (ref: string) => createHmac('sha256', config.JWT_SECRET).update(`track:${ref}`).digest('base64url').slice(0, 32);
 export const checkTrackingToken = (ref: string, token: unknown) => typeof token === 'string' && safeEqual(trackingToken(ref), token);
 export const trackingUrl = (ref: string) => `${config.PUBLIC_APP_URL}/#/track/${ref}?t=${trackingToken(ref)}`;
+
+/** Strips one-time tokens (set-password, tracking) from text that is stored or logged. */
+export const redactSecrets = (text: string) => text.replace(/([?&](?:token|t)=)[\w-]+/g, '$1[redacted]');

@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
+import { redactSecrets } from '../lib/tokens.js';
 
 // Delivery drivers for the notification outbox. With no SMTP_URL, emails are logged instead of sent.
 
@@ -10,8 +11,10 @@ export interface SmsSender {
   send(to: string, text: string): Promise<void>;
 }
 
+/** What the log drivers print. One-time links are redacted: whoever can read the log must not be able to use them. */
+export const logLineFor = (kind: string, to: string, text: string) => `[${kind} → ${to}] ${redactSecrets(text).replace(/\s+/g, ' ').slice(0, 300)}`;
 const logLine = (kind: string, to: string, text: string) => {
-  if (config.NODE_ENV !== 'test') console.log(`[${kind} → ${to}] ${text.replace(/\s+/g, ' ').slice(0, 300)}`);
+  if (config.NODE_ENV !== 'test') console.log(logLineFor(kind, to, text));
 };
 
 class SmtpMailer implements Mailer {

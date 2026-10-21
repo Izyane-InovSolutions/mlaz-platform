@@ -16,8 +16,9 @@ export interface UploadedFile {
 /** Reads a multipart request into text fields and in-memory files. Size limits are enforced by @fastify/multipart. */
 export async function readMultipart(req: FastifyRequest) {
   if (!req.isMultipart()) throw badRequest('Send this request as multipart/form-data.');
-  const fields: Record<string, string> = {};
-  const files: Record<string, UploadedFile> = {};
+  // No prototype: a part named "__proto__" or "constructor" is just a key, never a way to change the object.
+  const fields: Record<string, string> = Object.create(null);
+  const files: Record<string, UploadedFile> = Object.create(null);
   for await (const part of req.parts()) {
     if (part.type === 'file') {
       const buffer = await part.toBuffer();
@@ -53,6 +54,36 @@ export async function storeFile(file: UploadedFile, kind: DocumentKind): Promise
   await storage.put(storageKey, file.buffer, type.mime);
   const filename = file.filename.replace(/[^\w.\- ()]/g, '_').slice(0, 120) || `document.${ext}`;
   return { kind, storageKey, filename, mimeType: type.mime, size: file.buffer.length, sha256: sha256(file.buffer) };
+}
+
+/** Removes stored files whose database record was never written, so a failed request leaves nothing behind. */
+export async function discardFiles(stored: StoredFile[]) {
+  await Promise.allSettled(stored.map(f => storage.remove(f.storageKey)));
+}
+
+/** Stores several files; if one is rejected, the ones already stored are removed again. */
+export async function storeFiles(list: (readonly [UploadedFile, DocumentKind])[]) {
+  const stored: StoredFile[] = [];
+  try {
+    for (const [file, kind] of list) stored.push(await storeFile(file, kind));
+  } catch (e) {
+    await discardFiles(stored);
+    throw e;
+  }
+  return stored;
+}
+
+/**
+ * Runs the database write that records `stored`. If it fails, the files are removed. Pass only the write itself, never
+ * work that runs after it commits, or a recorded file could be deleted.
+ */
+export async function commitFiles<T>(stored: StoredFile[], write: () => Promise<T>): Promise<T> {
+  try {
+    return await write();
+  } catch (e) {
+    await discardFiles(stored);
+    throw e;
+  }
 }
 
 export function requireFile(files: Record<string, UploadedFile>, field: string, label: string) {

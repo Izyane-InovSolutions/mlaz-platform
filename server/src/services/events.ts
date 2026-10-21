@@ -7,7 +7,7 @@ import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { K, num, sum } from '../lib/money.js';
 import { s } from '../lib/validate.js';
 import { T, notify } from './notifications.js';
-import { type Checkout, createPayment, initiate, paymentView } from './payments.js';
+import { type Checkout, EVENT_CANCELLED_REASON, createPayment, initiate, paymentView } from './payments.js';
 
 export const MAX_TICKETS = 10;
 const ACTIVE = { in: ['PENDING', 'CONFIRMED'] } as P.EnumRegistrationStatusFilter;
@@ -21,6 +21,8 @@ export const eventSchema = z.object({
   capacity: z.coerce.number().int().min(1).max(100_000),
   price: s.money,
 });
+// For edits: a field left out stays as it is. (zod applies .default() even inside .partial(), which would blank the description.)
+const eventUpdateSchema = eventSchema.extend({ description: s.optionalText(2000).unwrap() }).partial();
 
 async function seatsTaken(db: Db, eventId: string) {
   const r = await db.registration.aggregate({ where: { eventId, status: ACTIVE }, _sum: { tickets: true } });
@@ -77,7 +79,7 @@ export async function create(actor: Actor, body: unknown) {
 }
 
 export async function update(actor: Actor, id: string, body: unknown) {
-  const v = eventSchema.partial().parse(body);
+  const v = eventUpdateSchema.parse(body);
   return prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT "id" FROM "Event" WHERE "id" = ${id} FOR UPDATE`;
     const e = await eventById(tx, id);
@@ -108,7 +110,7 @@ export async function cancel(actor: Actor, id: string, reason: string) {
     for (const r of regs) {
       const paid = r.payment?.status === 'SUCCESS';
       await tx.registration.update({ where: { id: r.id }, data: { status: 'CANCELLED', cancelledAt: new Date(), refundDue: paid } });
-      if (r.payment?.status === 'PENDING') await tx.payment.update({ where: { id: r.payment.id }, data: { status: 'CANCELLED', failureReason: 'Event cancelled' } });
+      if (r.payment?.status === 'PENDING') await tx.payment.update({ where: { id: r.payment.id }, data: { status: 'CANCELLED', failureReason: EVENT_CANCELLED_REASON } });
       await notify(tx, { email: r.member.contactEmail }, T.eventCancelled(e, reason, paid));
     }
     const refunds = regs.filter(r => r.payment?.status === 'SUCCESS');

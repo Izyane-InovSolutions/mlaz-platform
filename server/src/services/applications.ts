@@ -3,15 +3,15 @@ import type { Application, ApplicationStage, Prisma as P } from '../generated/pr
 import { type Actor, applicantActor, audit } from '../lib/audit.js';
 import type { AuthUser } from '../lib/auth.js';
 import { dateOnly, today } from '../lib/dates.js';
-import { type Db, prisma } from '../lib/db.js';
+import { type Db, type Tx, prisma } from '../lib/db.js';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.js';
 import { nextRef } from '../lib/ids.js';
 import { K, num } from '../lib/money.js';
-import { type UploadedFile, requireFile, storeFile } from '../lib/uploads.js';
+import { type UploadedFile, commitFiles, requireFile, storeFile, storeFiles } from '../lib/uploads.js';
 import { s } from '../lib/validate.js';
 import { checkTrackingToken, trackingToken, trackingUrl } from '../lib/tokens.js';
 import { T, notify } from './notifications.js';
-import { type Checkout, createPayment, guardPending, initiate, paymentView, recordOffline } from './payments.js';
+import { type Checkout, createPayment, guardPending, initiate, lockPayments, paymentView, recordOffline } from './payments.js';
 import { fees, tierDues } from './settings.js';
 
 // Application journey: DETAILS → MOF_REVIEW → (recommended by a maker, approved by a different checker) → PAYMENT_PENDING
@@ -59,16 +59,17 @@ export async function submit(fields: Record<string, string>, files: Record<strin
   if (mofFile && !d.mofRef) throw badRequest('Enter the authorization reference for the MoF document you attached.');
   if (d.mofRef && !mofFile) throw badRequest('Attach the MoF authorization document, or leave the reference blank and upload both later.');
 
-  // Store files first so the transaction stays short.
-  const stored = [
-    await storeFile(requireFile(files, 'pacraFile', 'PACRA certificate of incorporation'), 'PACRA_CERTIFICATE'),
-    await storeFile(requireFile(files, 'nrcFile', 'copy of the director’s NRC'), 'DIRECTOR_NRC'),
-    ...(mofFile ? [await storeFile(mofFile, 'MOF_AUTHORIZATION')] : []),
-  ];
+  // Store files first so the transaction stays short. Every required file is checked before any is stored, and the
+  // stored files are removed again if the application cannot be recorded.
+  const stored = await storeFiles([
+    [requireFile(files, 'pacraFile', 'PACRA certificate of incorporation'), 'PACRA_CERTIFICATE'] as const,
+    [requireFile(files, 'nrcFile', 'copy of the director’s NRC'), 'DIRECTOR_NRC'] as const,
+    ...(mofFile ? [[mofFile, 'MOF_AUTHORIZATION'] as const] : []),
+  ]);
   const hasMof = !!mofFile;
   const actor = applicantActor(d.contact, ip);
 
-  const app = await prisma.$transaction(async tx => {
+  const app = await commitFiles(stored, () => prisma.$transaction(async tx => {
     const a = await tx.application.create({
       data: {
         ref: await nextRef(tx, 'application'),
@@ -81,7 +82,7 @@ export async function submit(fields: Record<string, string>, files: Record<strin
     await audit(tx, actor, a.ref, 'Application submitted', hasMof ? 'MoF authorization, PACRA certificate and director NRC uploaded' : 'PACRA certificate and director NRC uploaded · MoF authorization to follow');
     await notify(tx, { email: a.email, phone: a.phone }, T.applicationReceived({ ...a, hasMof }, trackingUrl(a.ref)));
     return a;
-  });
+  }));
   return { ref: app.ref, stage: app.stage, trackingToken: trackingToken(app.ref), trackUrl: trackingUrl(app.ref) };
 }
 
@@ -114,12 +115,20 @@ export async function uploadMof(a: Application, mofRef: string, file: UploadedFi
   if (a.stage !== 'DETAILS') throw conflict('This application is not waiting for a MoF authorization.');
   const stored = await storeFile(file, 'MOF_AUTHORIZATION');
   const actor = applicantActor(a.contactName, ip);
-  await prisma.$transaction(async tx => {
+  await commitFiles([stored], () => prisma.$transaction(async tx => {
+    // The stage is checked again as part of the write: a rejection that landed during the upload must not be undone.
+    const moved = await tx.application.updateMany({ where: { id: a.id, stage: 'DETAILS' }, data: { stage: 'MOF_REVIEW', mofRef, returnNote: null } });
+    if (!moved.count) throw conflict('This application is not waiting for a MoF authorization.');
     await tx.document.updateMany({ where: { applicationId: a.id, kind: 'MOF_AUTHORIZATION' }, data: { superseded: true } });
     await tx.document.create({ data: { ...stored, applicationId: a.id, uploadedBy: actor.label } });
-    await tx.application.update({ where: { id: a.id }, data: { stage: 'MOF_REVIEW', mofRef, returnNote: null } });
     await audit(tx, actor, a.ref, 'MoF authorization uploaded', mofRef);
-  });
+  }));
+}
+
+/** Re-reads the stage inside a transaction that holds the application's payment lock. */
+async function assertStage(tx: Tx, applicationId: string, stage: ApplicationStage, message: string) {
+  const { stage: now } = await tx.application.findUniqueOrThrow({ where: { id: applicationId }, select: { stage: true } });
+  if (now !== stage) throw conflict(message);
 }
 
 export async function startPayment(a: Application, checkout: Checkout) {
@@ -127,6 +136,7 @@ export async function startPayment(a: Application, checkout: Checkout) {
   const f = await applicationFees(prisma, a.tierName);
   const payment = await prisma.$transaction(async tx => {
     await guardPending(tx, { applicationId: a.id });
+    await assertStage(tx, a.id, 'PAYMENT_PENDING', 'This application is not awaiting payment.');
     return createPayment(tx, {
       purpose: 'APPLICATION', applicationId: a.id, payerName: a.businessName, method: checkout.method, msisdn: checkout.msisdn,
       lines: [
@@ -272,7 +282,10 @@ export async function returnToApplicant(actor: Actor, ref: string, reason: strin
 
 export async function reject(actor: Actor, ref: string, reason: string) {
   return prisma.$transaction(async tx => {
-    const a = await appByRef(tx, ref);
+    // Take the application's payment lock (as "pay now" does), then re-read: a payment cannot start mid-rejection.
+    const { id } = await appByRef(tx, ref);
+    await lockPayments(tx, { applicationId: id });
+    const a = await tx.application.findUniqueOrThrow({ where: { id } });
     if (!OPEN.includes(a.stage)) throw conflict('This application is already closed.');
     if (await tx.payment.findFirst({ where: { applicationId: a.id, status: 'PENDING' } })) throw conflict('A payment is in progress for this application. Resolve it first.');
     await tx.application.update({ where: { id: a.id }, data: { stage: 'REJECTED', rejectionReason: reason } });
@@ -287,6 +300,7 @@ export async function recordOfflinePayment(actor: Actor, ref: string, v: { metho
   const f = await applicationFees(prisma, a.tierName);
   const p = await prisma.$transaction(async tx => {
     await guardPending(tx, { applicationId: a.id });
+    await assertStage(tx, a.id, 'PAYMENT_PENDING', 'This application is not awaiting payment.');
     return recordOffline(tx, actor, {
       purpose: 'APPLICATION', applicationId: a.id, payerName: a.businessName, method: v.method, bankRef: v.reference,
       lines: [
