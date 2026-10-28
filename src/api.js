@@ -56,12 +56,15 @@ function adopt(r, base = {}) {
   return session;
 }
 
-// One refresh at a time, even if several calls need a token together.
+// One refresh at a time, even if several calls need a token together. Across tabs too: the refresh token rotates, and
+// the server treats the same token arriving twice as theft (ending every session), so two tabs refreshing at once
+// would sign the user out. The Web Locks API queues them; the second tab then sends the already-rotated cookie.
 let refreshing = null;
+const acrossTabs = fn => (navigator.locks ? navigator.locks.request('mlaz-session-refresh', fn) : fn());
 export function refreshSession() {
   const s = getSession();
   if (!s) return Promise.resolve(false);
-  refreshing ??= send('/auth/refresh', { method: 'POST', body: { remember: !!s.remember }, auth: false })
+  refreshing ??= acrossTabs(() => send('/auth/refresh', { method: 'POST', body: { remember: !!s.remember }, auth: false }))
     .then(async res => {
       if (!res.ok) { accessToken = null; setSession(null); return false; }
       adopt(await res.json(), getSession() || s);
@@ -111,12 +114,13 @@ export async function download(path, opts = {}) {
 const roleFor = portal => (portal === 'staff' ? 'admin' : 'member');
 
 /**
- * Signs in. Returns the session, or { mfaRequired, mfaToken } when the account uses two-factor sign-in; finish with
- * completeSignIn(). portal: 'staff' | 'member'.
+ * Signs in. Returns the session, or { mfaRequired, mfaToken, method } when a second step is needed: 'totp' for the
+ * authenticator app, or 'email' for a code the server emailed because the account is seeing repeated failed sign-ins
+ * and this browser has not signed in to it before. Finish with completeSignIn(). portal: 'staff' | 'member'.
  */
 export async function signIn(email, password, portal, remember) {
   const r = await api('/auth/login', { method: 'POST', body: { email, password, portal, remember: !!remember }, auth: false });
-  if (r.mfaRequired) return { mfaRequired: true, mfaToken: r.mfaToken };
+  if (r.mfaRequired) return { mfaRequired: true, mfaToken: r.mfaToken, method: r.method === 'email' ? 'email' : 'totp' };
   return adopt(r, { role: roleFor(portal) });
 }
 

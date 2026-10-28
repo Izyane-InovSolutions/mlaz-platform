@@ -5,12 +5,31 @@ import { Modal, Toast } from 'bootstrap';
 
 /* ================= FORMATTING ================= */
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-/**
- * A value as a JavaScript string argument inside an HTML event attribute: onclick="fn(${jsArg(x)})".
- * esc() alone is NOT enough there: the browser decodes &#39; back to ' before running the handler. JSON-encoding first
- * keeps quotes and backslashes escaped after that decoding, so the value can never break out of the string.
- */
-export const jsArg = s => esc(JSON.stringify(String(s ?? '')).replace(/</g, '\\u003c'));
+
+/* ================= EVENT HANDLERS ================= */
+// The Content-Security-Policy forbids inline script, which includes onclick="…" attributes and javascript: URLs. Markup
+// instead names a registered handler and its arguments (JSON data, never code), and one listener per event type on the
+// document calls it:   `<button ${on('click', 'viewDoc', id, title)}>`   →   viewDoc(id, title)
+// Pass EL to receive the element itself (a button to mark busy, a form to read). A submit never reloads the page, and a
+// click on <a href="#"> never navigates.
+const handlers = Object.create(null);
+/** Registers functions that markup may name in on(). */
+export const expose = o => { Object.assign(handlers, o); };
+export const EL = Object.freeze({ $el: 1 });
+export const on = (type, name, ...args) =>
+  `data-on-${type}="${esc(name)}"${args.length ? ` data-args-${type}="${esc(JSON.stringify(args))}"` : ''}`;
+for (const type of ['click', 'submit', 'input', 'change']) {
+  document.addEventListener(type, e => {
+    const el = e.target instanceof Element ? e.target.closest(`[data-on-${type}]`) : null;
+    if (!el) return;
+    if (type === 'submit' || (type === 'click' && el.matches('a[href="#"]'))) e.preventDefault();
+    const fn = handlers[el.getAttribute(`data-on-${type}`)];
+    if (typeof fn !== 'function') return;
+    let args;
+    try { args = JSON.parse(el.getAttribute(`data-args-${type}`) || '[]'); } catch (_) { return; }
+    if (Array.isArray(args)) fn(...args.map(a => (a && a.$el === 1 ? el : a)));
+  });
+}
 export const initials = s => String(s ?? '').split(' ').map(w => w[0]).filter(x => /[A-Za-z]/.test(x || '')).slice(0, 2).join('').toUpperCase();
 export const K = n => 'K' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
 export const KM = n => n >= 1e6 ? 'K' + (n / 1e6).toFixed(2) + 'M' : n >= 1e4 ? 'K' + Math.round(n / 1000) + 'k' : K(n);
@@ -48,7 +67,6 @@ export function busy(btn, on, label = 'Please wait…') {
   if (on) { btn.dataset.label = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${label}`; }
   else { btn.disabled = false; if (btn.dataset.label) btn.innerHTML = btn.dataset.label; }
 }
-export const expose = o => Object.assign(window, o);
 
 /* ================= UI PRIMITIVES ================= */
 export const icon = (n, cls = '') => `<i class="bi bi-${n} ${cls}"></i>`;
@@ -158,7 +176,7 @@ export function readForm(root) {
 }
 
 /* NRC inputs: digits only (max 9), with the slashes of 000000/00/0 inserted as the user types. */
-export const NRC_ATTRS = 'inputmode="numeric" autocomplete="off" maxlength="11" pattern="[0-9]{6}/[0-9]{2}/[0-9]" placeholder="000000/00/0" oninput="nrcMask(this)"';
+export const NRC_ATTRS = `inputmode="numeric" autocomplete="off" maxlength="11" pattern="[0-9]{6}/[0-9]{2}/[0-9]" placeholder="000000/00/0" ${on('input', 'nrcMask', EL)}`;
 const formatNrc = v => { const d = String(v).replace(/\D/g, '').slice(0, 9); return [d.slice(0, 6), d.slice(6, 8), d.slice(8)].filter(Boolean).join('/'); };
 function nrcMask(el) {
   // Keep the caret after the same number of digits, so editing mid-number doesn't jump to the end.
@@ -170,7 +188,7 @@ function nrcMask(el) {
 }
 
 /* Fixed-length number inputs (TPIN, PACRA): digits only, capped at n. */
-export const digitsAttrs = (n, ph = `${n} digits`) => `inputmode="numeric" autocomplete="off" maxlength="${n}" pattern="[0-9]{${n}}" placeholder="${ph}" oninput="digitsOnly(this)"`;
+export const digitsAttrs = (n, ph = `${n} digits`) => `inputmode="numeric" autocomplete="off" maxlength="${n}" pattern="[0-9]{${n}}" placeholder="${ph}" ${on('input', 'digitsOnly', EL)}`;
 function digitsOnly(el) { const v = el.value.replace(/\D/g, '').slice(0, el.maxLength); if (v !== el.value) el.value = v; }
 
 /* Opens the markup in a new window with the app's styles and prints it, so it can be saved as PDF. */

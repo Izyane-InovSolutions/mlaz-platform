@@ -1,15 +1,15 @@
 import { z } from 'zod';
-import type { MemberStatus, Prisma as P } from '../generated/prisma/client.js';
+import type { Member, MemberStatus, Prisma as P } from '../generated/prisma/client.js';
 import { type Actor, activity, audit } from '../lib/audit.js';
 import { addDays, fmtDate, today } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
-import { badRequest, conflict, notFound } from '../lib/errors.js';
-import { PROVINCES, s } from '../lib/validate.js';
+import { badRequest, conflict } from '../lib/errors.js';
+import { PROVINCES, parse, s } from '../lib/validate.js';
 import { sendInvite } from './accounts.js';
 import { goodStandingWhere } from './dashboard.js';
 import { duesInfo, inGoodStanding, memberByNumber, memberSummary, suspend } from './membership.js';
 import { T, notify } from './notifications.js';
-import { guardPending, paymentView, recordOffline } from './payments.js';
+import { type Checkout, createPayment, guardPending, initiate, paymentView, recordOffline } from './payments.js';
 import { getSetting } from './settings.js';
 import { toCsv } from './reports.js';
 
@@ -123,18 +123,61 @@ export async function sendDuesReminder(actor: Actor, number: string) {
   });
 }
 
+/** The payment line for a member's next dues period, the same whether paid online or recorded by the Secretariat. */
+const duesLine = (m: Pick<Member, 'tierName'>, dues: Awaited<ReturnType<typeof duesInfo>>) =>
+  ({ type: 'DUES' as const, description: `Annual dues (${m.tierName}) · ${fmtDate(dues.periodStart)} to ${fmtDate(dues.periodEnd)}`, unitAmount: dues.amount });
+
 /** Records dues paid outside the online checkout (e.g. a transfer seen on the bank statement). */
 export async function recordOfflineDues(actor: Actor, number: string, v: { method: 'BANK_TRANSFER' | 'CASH'; reference: string }) {
   const m = await memberByNumber(prisma, number);
   const dues = await duesInfo(prisma, m);
   const p = await prisma.$transaction(async tx => {
     await guardPending(tx, { memberId: m.id, purpose: 'DUES' });
-    return recordOffline(tx, actor, {
-      purpose: 'DUES', memberId: m.id, payerName: m.name, method: v.method, bankRef: v.reference,
-      lines: [{ type: 'DUES', description: `Annual dues (${m.tierName}) · ${fmtDate(dues.periodStart)} to ${fmtDate(dues.periodEnd)}`, unitAmount: dues.amount }],
-    });
+    return recordOffline(tx, actor, { purpose: 'DUES', memberId: m.id, payerName: m.name, method: v.method, bankRef: v.reference, lines: [duesLine(m, dues)] });
   });
   return paymentView(p);
+}
+
+/* ---------- the member's own account (portal) ---------- */
+
+// Members keep their contact details current themselves. The business name, location and registration numbers appear
+// on certificates and in the public directory, so only the Secretariat changes those (update() above).
+const OWN_PROFILE_FIELDS = ['address', 'contactName', 'contactPhone', 'contactEmail'];
+const ownProfileSchema = z.object({
+  address: z.string().trim().max(300), contactName: s.line(120), contactPhone: s.phone, contactEmail: s.email,
+}).partial();
+
+export async function updateOwnProfile(actor: Actor, memberId: string, body: unknown) {
+  const extra = Object.keys((body ?? {}) as object).filter(k => !OWN_PROFILE_FIELDS.includes(k));
+  if (extra.length) throw badRequest('Only contact details and address can be changed here. Ask the Secretariat to change other details.', { fields: extra.map(field => ({ field, message: 'Not editable' })) });
+  const v = parse(ownProfileSchema, body);
+  const m = await prisma.member.findUniqueOrThrow({ where: { id: memberId } });
+  const changed = Object.entries(v).filter(([k, val]) => (m as Record<string, unknown>)[k] !== val).map(([k, val]) => `${k}: ${val}`);
+  if (!changed.length) return memberSummary(prisma, m);
+  const updated = await prisma.$transaction(async tx => {
+    const u = await tx.member.update({ where: { id: m.id }, data: v });
+    await activity(tx, m.id, 'profile_updated', 'Profile updated', changed.join(' · '));
+    await audit(tx, actor, m.number, 'Profile updated by member', changed.join(' · '));
+    return u;
+  });
+  return memberSummary(prisma, updated);
+}
+
+/** Starts the online payment of the member's next dues period and sends it to the gateway. */
+export async function startDuesPayment(actor: Actor, memberId: string, checkout: Checkout) {
+  const m = await prisma.member.findUniqueOrThrow({ where: { id: memberId } });
+  const dues = await duesInfo(prisma, m);
+  if (!dues.payable) throw conflict(`Dues for the next period can be paid from ${fmtDate(dues.opensOn)}.`, 'DUES_NOT_PAYABLE');
+  if (m.status === 'SUSPENDED') throw conflict('Your membership is suspended. Contact the Secretariat before paying dues.', 'SUSPENDED');
+  const p = await prisma.$transaction(async tx => {
+    await guardPending(tx, { memberId: m.id, purpose: 'DUES' });
+    const payment = await createPayment(tx, {
+      purpose: 'DUES', memberId: m.id, payerName: m.name, method: checkout.method, msisdn: checkout.msisdn, lines: [duesLine(m, dues)],
+    });
+    await audit(tx, actor, m.number, 'Dues payment started', `${payment.ref} · ${checkout.method}`);
+    return payment;
+  });
+  return initiate(p.id); // after commit: never hold a transaction open across the gateway call
 }
 
 export async function inviteMemberUser(actor: Actor, number: string, email: string, name: string) {
@@ -153,9 +196,4 @@ export async function certificatesList(q: { status?: string }) {
     include: { member: { select: { number: true, name: true, status: true, accreditation: true, mofStatus: true, validUntil: true } } },
   });
   return certs.map(c => ({ serial: c.serial, status: c.status, issuedAt: c.issuedAt, validUntil: c.validUntil, member: { ...c.member, goodStanding: inGoodStanding(c.member) } }));
-}
-
-export function assertExists<T>(x: T | null | undefined, what: string): T {
-  if (!x) throw notFound(what);
-  return x;
 }

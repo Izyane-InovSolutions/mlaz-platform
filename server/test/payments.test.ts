@@ -1,9 +1,10 @@
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config.js';
 import { addDays, addYears, isoDate, today } from '../src/lib/dates.js';
 import { prisma } from '../src/lib/db.js';
 import { hmac } from '../src/lib/tokens.js';
-import { reconcilePending, settle } from '../src/services/payments.js';
+import { gateway } from '../src/providers/payments.js';
+import { UNREACHABLE_REASON, reconcilePending, settle } from '../src/services/payments.js';
 import { SYSTEM } from '../src/lib/audit.js';
 import { PDF, STAFF, as, form, getApp, makeMember, resetDb } from './helpers.js';
 
@@ -140,6 +141,43 @@ describe('payment webhooks and settlement', () => {
     await settle(p.id, { status: 'SUCCESS' }, SYSTEM);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SUCCESS');
     expect(await prisma.duesPayment.count({ where: { paymentId: p.id } })).toBe(1);
+  });
+
+  // The gateway may have taken the payer's money even though it never answered us, so its later success must count.
+  it('applies a later success when the gateway could not be reached at initiation', async () => {
+    const spy = vi.spyOn(gateway(), 'initiate').mockRejectedValueOnce(new Error('ECONNRESET'));
+    try {
+      const p = await pendingPayment();
+      expect(p).toMatchObject({ status: 'FAILED', failureReason: UNREACHABLE_REASON, providerRef: null });
+      await settle(p.id, { status: 'SUCCESS' }, SYSTEM);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SUCCESS');
+      expect(await prisma.duesPayment.count({ where: { paymentId: p.id } })).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('times out a slow gateway, but records its late answer so the webhook still settles the payment', async () => {
+    const spy = vi.spyOn(gateway(), 'initiate').mockImplementationOnce(async () => {
+      await new Promise(r => setTimeout(r, (config.PAYMENT_INITIATE_TIMEOUT_SECONDS + 0.5) * 1000));
+      return { providerRef: `late-${Date.now()}`, status: 'PENDING' };
+    });
+    try {
+      const started = Date.now();
+      const p = await pendingPayment();
+      expect(Date.now() - started).toBeLessThan((config.PAYMENT_INITIATE_TIMEOUT_SECONDS + 0.5) * 1000);
+      expect(p).toMatchObject({ status: 'FAILED', failureReason: UNREACHABLE_REASON });
+      let providerRef: string | null = null;
+      for (let i = 0; i < 40 && !providerRef; i++) {
+        await new Promise(r => setTimeout(r, 50));
+        providerRef = (await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).providerRef;
+      }
+      expect(providerRef).toMatch(/^late-/);
+      expect((await webhook(JSON.stringify({ providerRef, status: 'SUCCESS' }))).statusCode).toBe(200);
+      expect((await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('SUCCESS');
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('does not flip a genuinely declined payment to success', async () => {

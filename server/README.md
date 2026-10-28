@@ -7,13 +7,13 @@ Node.js 22+, TypeScript, Fastify 5, PostgreSQL, Prisma 7.
 
 ```bash
 cd server
-cp .env.example .env          # then set JWT_SECRET and WEBHOOK_SECRET
+cp .env.example .env          # then set JWT_SECRET, DATA_ENCRYPTION_KEY and WEBHOOK_SECRET
 npm install                   # also generates the Prisma client
 npm run db:up                 # PostgreSQL in Docker on localhost:5435 (+ a mlaz_test database)
 npm run db:deploy             # apply migrations
 npm run db:seed               # demo data (same members/applications as the prototype)
 npm run dev                   # http://localhost:3000, background jobs included
-npm test                      # 51 API tests against mlaz_test
+npm test                      # API tests (about 145, ~3 min) against mlaz_test
 ```
 
 `npm run db:reset` drops the dev database, re-applies migrations and re-seeds.
@@ -33,7 +33,7 @@ Demo accounts (password `Mlaz@2026demo`, or `SEED_PASSWORD`):
 ```
 src/
   app.ts            Fastify setup: security headers, CORS, rate limits, uploads, error format, routes
-  index.ts          starts the server and the background jobs
+  index.ts          starts the server, then the background jobs; graceful shutdown
   config.ts         environment variables, validated at startup
   lib/              database client, auth (argon2 + JWT), role permissions, uploads, storage, audit, dates
   services/         business rules; one file per area (applications, membership, payments, events, ...)
@@ -72,15 +72,28 @@ Every item below is enforced on the server and covered by tests (`test/security.
 
 **Sign-in and sessions**
 - Passwords: argon2id; at least 10 characters, common and repetitive passwords refused, and not built from the email name.
-- Brute force: 5 failures in 15 minutes locks that email for 15 minutes. Unknown emails lock the same way, so a lockout
-  reveals nothing. A constant-time dummy hash hides whether an account exists.
+- Password guessing is limited in layers, counted atomically in Postgres so every API instance shares the numbers
+  (attempts are counted before the password is checked, so parallel requests can't slip past a limit):
+  50 attempts per address across all accounts; 5 per account from one address (or from one recognised device);
+  and 10 per account from unrecognised devices across all addresses. Blocks are temporary and grow with repeats
+  (1, 4, 16, then at most 60 minutes). **No one can lock a user out**: when an account is attacked from many addresses,
+  a correct password from a device that has not signed in to it before must be confirmed with a 6-digit code emailed
+  to the account (5 tries per code, 10 minutes), while devices that have signed in before (a signed `httpOnly` device
+  cookie) carry on as normal. A password reset lifts all of it. Unknown emails are throttled exactly like real ones and
+  a dummy hash equalises timing, so nothing reveals whether an account exists. Emails are normalised (case, spacing,
+  Unicode form) before counting.
 - Two-factor sign-in (TOTP, any authenticator app) for any account. The secret is encrypted at rest (AES-256-GCM,
   `DATA_ENCRYPTION_KEY`). Each code works once, eight hashed recovery codes are issued, and an admin can reset a
   colleague's lost device. Set `REQUIRE_STAFF_2FA=true` to force enrolment for all staff.
 - Tokens: a 15-minute access token (JWT, HS256, issuer/audience/type checked) held only in the page's memory. The refresh
   token is an `httpOnly`, `SameSite=Strict` cookie scoped to `/api/auth`, so page scripts can never read it; cookie
   endpoints also require an allowed `Origin` and the `x-mlaz-csrf` header. Refresh tokens rotate, and re-use of a
-  rotated one is treated as theft and ends every session.
+  rotated one (or two uses at once) is treated as theft and ends every session.
+- Session lifetime: every sign-in creates a session with a fixed absolute deadline (`SESSION_ABSOLUTE_LIFETIME_HOURS`,
+  default 7 days) that refreshing never moves, plus an idle timeout (`SESSION_IDLE_TIMEOUT_HOURS`, default 24 hours).
+  Refresh tokens, access tokens and the "keep me signed in" cookie never outlive the deadline, and the session is
+  checked on every request, so sign-out and expiry take effect at once on every instance. Lowering either setting also
+  shortens existing sessions. The UI serialises refreshes across tabs (Web Locks), so tabs can't trip theft detection.
 - Changing or resetting a password, deactivation, resetting 2FA and "sign out everywhere" invalidate every existing
   access token immediately (millisecond-precise `sessionsValidAfter`). The user is re-read on every request.
 - Invite and reset links are single-use, hashed at rest, short-lived (1 hour for resets), and only the newest one works.
@@ -96,11 +109,19 @@ Every item below is enforced on the server and covered by tests (`test/security.
 **Input, output and files**
 - Every body, query and param is validated with zod (lengths, formats, enums); unknown fields are dropped and control
   characters refused. All SQL goes through Prisma or tagged parameterised queries.
-- Uploads: PDF/JPG/PNG only, detected from the file's bytes; 10 MB and 4 files per request; stored under random
-  server-generated keys. Files are always served as attachments with `Content-Security-Policy: sandbox` and `no-store`.
+- Uploads are streamed to owner-only temporary files (`UPLOAD_TMP_DIR`, never under `STORAGE_DIR` or any served
+  folder), never held in memory, and moved into storage (or streamed to S3) only once accepted. PDF/JPG/PNG only,
+  detected from the file's bytes; `UPLOAD_MAX_FILE_MB` (10) per file, 4 files and 40 fields per request; a request whose
+  declared size is already too large is refused before it is read (413); at most `UPLOAD_MAX_CONCURRENT` uploads in
+  progress per instance (503) within `UPLOAD_TEMP_QUOTA_MB`; `UPLOAD_TIMEOUT_SECONDS` to arrive (408); all documents
+  within `STORAGE_QUOTA_MB` (507). Temporary files are removed whatever happens (error, abort, timeout), and leftovers
+  from a crash at start-up. Uploads are only read after the caller is authorised. Stored under random server-generated
+  keys; the browser's file name is display-only. Downloads are streamed, always as attachments with
+  `Content-Security-Policy: sandbox`, `nosniff` and `no-store`.
 - Responses: helmet headers (strict CSP, HSTS, `no-referrer`, no framing). Personal-data responses are `no-store`.
+  `POST /api/csp-report` accepts the UI's CSP violation reports and logs only the directive and URL origins/paths.
   Errors never leak internals or echo URLs. CSV exports neutralise spreadsheet formulas.
-- Logs: tokens in URLs (`?t=`, `?token=`) are redacted. Delivered emails have their one-time links scrubbed from the
+- Logs: tokens in URLs (`?t=`, `?token=`) and emailed sign-in codes are redacted. Delivered emails have their one-time links scrubbed from the
   outbox, and message bodies are never returned by the API.
 
 **Network and payments**
@@ -126,10 +147,19 @@ The log email/SMS drivers redact one-time links in every environment.
   cookie works.
 - Set `TRUST_PROXY_HOPS` to the real number of proxies in front of the API.
 - Run Postgres with encrypted disks/backups and a least-privilege database user.
-- Rate limits are per instance (in memory). Add a shared store (Redis) if you run several API replicas.
-- The UI's CSP needs `'unsafe-inline'` for scripts because pages use inline event handlers. Every handler argument is
-  JSON-encoded (`jsArg`) and all text is escaped, but moving to `addEventListener` would allow a strict CSP.
-- In `vercel.json`, tighten `connect-src` to the API's domain.
+- Sign-in throttling, sessions and upload limits that matter across replicas live in Postgres. The per-route request
+  rate limits (`@fastify/rate-limit`) are still per instance (in memory): add a shared store (Redis) for those if you
+  run several API replicas.
+- Keep server clocks in sync (NTP): session deadlines and throttle windows are compared with the API's clock.
+- Reverse proxy in front of the API (uploads): allow request bodies of at least 42 MB (4 × `UPLOAD_MAX_FILE_MB` + 2 MB),
+  stream them rather than buffer them, and time out slow bodies. For nginx: `client_max_body_size 42m;`
+  `proxy_request_buffering off;` `client_body_timeout 60s;` `proxy_read_timeout 150s;`. Never serve `STORAGE_DIR` or
+  `UPLOAD_TMP_DIR` as static files.
+- The UI's CSP (`vercel.json`) allows scripts only from its own origin: no inline scripts, inline event handlers,
+  `javascript:` URLs or `eval` (pages use delegated `data-on-*` handlers, see `src/ui.js`). The dev server and
+  `vite preview` send the same policy. To collect violation reports in production, add
+  `report-uri https://<api-domain>/api/csp-report` to it once the API domain is fixed, and tighten `connect-src` to
+  that domain. `style-src` still allows `'unsafe-inline'` because the markup uses `style` attributes.
 
 ## API
 
@@ -138,6 +168,8 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 
 **Auth** `/api/auth`: `POST /login` `{email, password, portal?: 'staff'|'member'}` · `POST /refresh` · `POST /logout` · `GET /me` ·
 `POST /password/forgot` · `POST /password/set` `{token, password}` (invite and reset links) · `POST /password/change`
+- `POST /login` may answer `{mfaRequired: true, method: 'totp'|'email', mfaToken}`; finish with `POST /login/mfa`
+  `{mfaToken, code}` (authenticator code, recovery code, or the emailed sign-in code). Sessions carry `sessionExpiresAt`.
 
 **Public** `/api/public`: `GET /config` (tiers, fees, provinces, payment methods, bank account) · `GET /stats` · `GET /announcements` ·
 `GET /events` · `GET /verify?q=` (member number, certificate serial or name) · `GET /directory?q=&province=&tier=&page=`
@@ -170,7 +202,7 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 - Settings: `GET /settings` · `PUT /settings/tiers/:name` · `PUT /settings/fees` · `PUT /settings/bank-account`
 - Staff: `GET|POST /staff` · `PATCH /staff/:id` · `POST /staff/:id/resend-invite`
 
-**Webhooks** `POST /api/webhooks/payments/:provider` (signature-checked raw body). **Health** `GET /health`.
+**Webhooks** `POST /api/webhooks/payments/:provider` (signature-checked raw body). **Health** `GET /health` (ready: the database answers) and `GET /health/live` (the process is up).
 
 ## Connecting the UI
 
@@ -194,7 +226,9 @@ set-password, the Secretariat console (`src/admin.js`) and the member portal (`s
 
 These are simulated or stubbed behind interfaces in `src/providers/` and need real integrations:
 
-- **Payment gateway** (MTN/Airtel/Zamtel mobile money, card, iZyane Pay QR): implement `PaymentProvider` and set `PAYMENT_PROVIDER`. The sandbox
+- **Payment gateway** (MTN/Airtel/Zamtel mobile money, card, iZyane Pay QR): implement `PaymentProvider` and set `PAYMENT_PROVIDER`. The adapter must use the payment `ref` as its idempotency key and
+  must not retry without it; `initiate()` already times out (`PAYMENT_INITIATE_TIMEOUT_SECONDS`) and honours late successes
+  (see `docs/architecture.md`, "Payment gateway failures"). The sandbox
   settles payments after `SANDBOX_SETTLE_SECONDS`; a number ending in `0000` is declined.
 - **SMS gateway** (`SmsSender`). Email works with any SMTP server via `SMTP_URL`; without it, messages are logged.
 - **Credit bureau API** (`CreditBureau`), plus the bureau's terms on consent and permissible purpose.

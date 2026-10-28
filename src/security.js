@@ -2,7 +2,7 @@
 // and "sign out everywhere". Secrets shown here (the TOTP key, recovery codes) are displayed once and never stored.
 import QRCode from 'qrcode';
 import { adoptSession, api, ensureSession, refreshSession, signOutEverywhere } from './api.js';
-import { asyncModal, esc, expose, getSession, icon, modal, nav, rerender, toast } from './ui.js';
+import { asyncModal, esc, expose, getSession, icon, modal, nav, on, rerender, toast } from './ui.js';
 
 function showRecoveryCodes(codes, onDone = () => {}) {
   const text = `MLAZ recovery codes for ${getSession()?.email}\nEach code works once. Keep them somewhere safe.\n\n${codes.join('\n')}\n`;
@@ -87,9 +87,9 @@ export function accountCard() {
   const s = getSession();
   return `<div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">${icon('shield-lock', 'me-1')}Your account</h2></div><div class="list-group list-group-flush">
     <div class="list-group-item d-flex flex-wrap align-items-center gap-2 py-3"><div class="flex-grow-1 min-w-0"><div class="fw-medium">Two-factor sign-in</div><div class="small text-body-secondary">${s?.mfaEnabled ? 'On: a code from your phone is needed at each sign-in' : 'Off: protect your account with a code from your phone'}</div></div>
-      ${s?.mfaEnabled ? '<button class="btn btn-sm btn-outline-secondary" onclick="newRecoveryCodes()">New recovery codes</button><button class="btn btn-sm btn-outline-danger" onclick="disableMfa()">Turn off</button>' : '<button class="btn btn-sm btn-primary" onclick="enrolMfa()">Turn on</button>'}</div>
-    <div class="list-group-item d-flex align-items-center gap-3 py-3"><div class="flex-grow-1 min-w-0"><div class="fw-medium">Password</div><div class="small text-body-secondary text-truncate">${esc(s?.email)}</div></div><button class="btn btn-sm btn-outline-secondary" onclick="changePassword()">Change</button></div>
-    <div class="list-group-item d-flex align-items-center gap-3 py-3"><div class="flex-grow-1"><div class="fw-medium">Sessions</div><div class="small text-body-secondary">Sign out of every device at once</div></div><button class="btn btn-sm btn-outline-danger" onclick="signOutAll()">Sign out everywhere</button></div>
+      ${s?.mfaEnabled ? '<button class="btn btn-sm btn-outline-secondary" data-on-click="newRecoveryCodes">New recovery codes</button><button class="btn btn-sm btn-outline-danger" data-on-click="disableMfa">Turn off</button>' : '<button class="btn btn-sm btn-primary" data-on-click="enrolMfa">Turn on</button>'}</div>
+    <div class="list-group-item d-flex align-items-center gap-3 py-3"><div class="flex-grow-1 min-w-0"><div class="fw-medium">Password</div><div class="small text-body-secondary text-truncate">${esc(s?.email)}</div></div><button class="btn btn-sm btn-outline-secondary" ${on('click', 'changePassword')}>Change</button></div>
+    <div class="list-group-item d-flex align-items-center gap-3 py-3"><div class="flex-grow-1"><div class="fw-medium">Sessions</div><div class="small text-body-secondary">Sign out of every device at once</div></div><button class="btn btn-sm btn-outline-danger" ${on('click', 'signOutAll')}>Sign out everywhere</button></div>
   </div></div>`;
 }
 
@@ -102,9 +102,10 @@ export async function secureAccountPage() {
       <span class="brand-mark lg">${icon('shield-lock')}</span>
       <h1 class="h4 mt-3 mb-2">Secure your account</h1>
       <p class="small text-body-secondary">MLAZ requires two-factor sign-in for Secretariat accounts, because the console holds applicants’ identity documents and financial records. It takes about a minute.</p>
-      <button class="btn btn-primary btn-lg w-100 mt-2" onclick="enrolMfa(()=>nav('app/dashboard'))">Set up two-factor sign-in</button>
-      <button class="btn btn-link btn-sm mt-3" onclick="logout()">Sign out</button>
+      <button class="btn btn-primary btn-lg w-100 mt-2" ${on('click', 'enrolMfaThenDashboard')}>Set up two-factor sign-in</button>
+      <button class="btn btn-link btn-sm mt-3" ${on('click', 'logout')}>Sign out</button>
     </div></div></div></div></div></section>`;
 }
 
-expose({ enrolMfa, disableMfa, newRecoveryCodes, changePassword, signOutAll });
+const enrolMfaThenDashboard = () => enrolMfa(() => nav('app/dashboard'));
+expose({ enrolMfa, enrolMfaThenDashboard, disableMfa, newRecoveryCodes, changePassword, signOutAll });

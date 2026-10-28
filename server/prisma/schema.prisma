@@ -26,6 +26,7 @@ enum Role {
 enum TokenPurpose {
   INVITE
   PASSWORD_RESET
+  LOGIN_CHALLENGE // emailed sign-in code, asked for when an account is under a password-guessing attack
 }
 
 model User {
@@ -50,6 +51,7 @@ model User {
   updatedAt    DateTime  @updatedAt
 
   refreshTokens   RefreshToken[]
+  sessions        AuthSession[]
   tokens          UserToken[]
   recommendations Application[]  @relation("Recommender")
   approvals       Application[]  @relation("Approver")
@@ -57,18 +59,37 @@ model User {
   @@index([memberId])
 }
 
+// One signed-in device. Its refresh tokens rotate, but the absolute deadline is fixed at sign-in and never moves.
+model AuthSession {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime // absolute deadline: sign-in time + SESSION_ABSOLUTE_LIFETIME_HOURS
+  lastUsedAt DateTime  @default(now())
+  revokedAt  DateTime?
+
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+}
+
 model RefreshToken {
   id        String    @id @default(uuid())
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Null only for tokens issued before sessions had a fixed lifetime; those are refused.
+  sessionId String?
+  session   AuthSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   tokenHash String    @unique
-  expiresAt DateTime
+  expiresAt DateTime // idle deadline, never later than the session's absolute deadline
   revokedAt DateTime?
   // True when the token was exchanged for a new one. Seeing it again means it was copied: theft is assumed.
   rotated   Boolean   @default(false)
   createdAt DateTime  @default(now())
 
   @@index([userId])
+  @@index([sessionId])
 }
 
 // Single-use tokens for account invites and password resets. Only the SHA-256 hash is stored.
@@ -81,15 +102,18 @@ model UserToken {
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime     @default(now())
+
+  @@index([userId, purpose, createdAt]) // newest link of each kind, and per-account email caps
 }
 
-// Failed sign-in attempts per email address (hashed), whether or not the account exists, so lockouts do not reveal
-// which emails are registered.
+// Sign-in attempt counters (see services/accounts.ts). Keys are hashes of an email, an address or a device, whether or
+// not the account exists, so throttling reveals nothing about which emails are registered.
 model LoginThrottle {
-  key         String    @id // sha256 of the lower-cased email
-  failures    Int       @default(0)
+  key         String    @id
+  failures    Int       @default(0) // attempts in the current window
   windowStart DateTime  @default(now())
-  lockedUntil DateTime?
+  lockedUntil DateTime? // temporary block (or, for an account key, "ask unknown devices for an emailed code" until)
+  strikes     Int       @default(0) // blocks so far; each one lasts longer, up to a cap
 }
 
 /* ================= CONFIGURATION ================= */
@@ -182,7 +206,8 @@ model Member {
   creditChecks  CreditCheck[]
   reminders     ReminderLog[]
 
-  @@index([status])
+  @@index([status, validUntil]) // nightly lapse and reminder scans
+  @@index([mofStatus, mofExpiry]) // nightly MoF expiry scan
   @@index([tierName])
   @@index([province])
 }
@@ -559,6 +584,7 @@ model Notification {
   createdAt   DateTime            @default(now())
 
   @@index([status, sendAfter])
+  @@index([broadcastId])
 }
 
 /* ================= FINANCE ================= */

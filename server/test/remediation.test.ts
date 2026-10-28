@@ -11,7 +11,7 @@ import { logLineFor } from '../src/providers/messaging.js';
 import { RESET_MIN_MS } from '../src/services/accounts.js';
 import * as applications from '../src/services/applications.js';
 import { settle } from '../src/services/payments.js';
-import { PASSWORD, PDF, STAFF, as, form, getApp, makeMember, resetDb } from './helpers.js';
+import { PASSWORD, PDF, STAFF, as, form, getApp, makeMember, resetDb, tempUpload } from './helpers.js';
 
 const applicant = {
   name: 'Kasama Credit Ltd', pacra: '120260007777', tpin: '1007777777', town: 'Kasama', province: 'Northern', address: 'Plot 3',
@@ -119,7 +119,7 @@ describe('concurrent requests (M4, L6)', () => {
     expect((await (await as(STAFF.admin)).post(`/admin/applications/${ref}/reject`, { reason: 'Not a money lender.' })).statusCode).toBe(200);
     const before = storedFileCount();
 
-    await expect(applications.uploadMof(stale, 'MoF/ML/2026/1', { field: 'mofFile', filename: 'mof.pdf', buffer: PDF }, '127.0.0.1')).rejects.toMatchObject({ status: 409 });
+    await expect(applications.uploadMof(stale, 'MoF/ML/2026/1', await tempUpload('mofFile', 'mof.pdf', PDF), '127.0.0.1')).rejects.toMatchObject({ status: 409 });
     expect((await prisma.application.findUniqueOrThrow({ where: { ref } })).stage).toBe('REJECTED');
     expect(await prisma.document.count({ where: { applicationId: stale.id, kind: 'MOF_AUTHORIZATION' } })).toBe(0);
     expect(storedFileCount()).toBe(before); // the uploaded file was removed again
@@ -162,13 +162,16 @@ describe('password throttling (L2) and reset timing (L9)', () => {
     expect((await login(STAFF.comms, PASSWORD, '10.0.0.7')).statusCode).toBe(200);
   });
 
-  it('still caps guesses per account when they come from many addresses', async () => {
+  // Phase 3 replaced the account-wide lock (which let anyone with six addresses lock a user out) with a challenge:
+  // guesses spread over many addresses are still caught, but the real user can always get in with an emailed code.
+  it('meets guesses spread over many addresses with an emailed code, not a lock-out', async () => {
     for (let ip = 1; ip <= 6; ip++) {
       for (let i = 0; i < 5; i++) expect((await login(STAFF.finance, 'wrong-password', `10.1.0.${ip}`)).statusCode).toBe(401);
     }
-    const locked = await login(STAFF.finance, PASSWORD, '10.1.0.99');
-    expect(locked.statusCode).toBe(429);
-    expect(locked.json().error.code).toBe('TOO_MANY_ATTEMPTS');
+    const res = await login(STAFF.finance, PASSWORD, '10.1.0.99');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ mfaRequired: true, method: 'email' });
+    expect(res.json().accessToken).toBeUndefined();
   });
 
   it('answers a reset request no faster for an unknown email than for a real one', async () => {

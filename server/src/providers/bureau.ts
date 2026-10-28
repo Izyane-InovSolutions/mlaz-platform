@@ -67,5 +67,5 @@ class SimulatedBureau implements CreditBureau {
   }
 }
 
-export const bureau: CreditBureau = config.BUREAU_DRIVER === 'simulated' ? new SimulatedBureau() : new SimulatedBureau();
+export const bureau: CreditBureau = config.BUREAU_DRIVER === 'simulated' ? new SimulatedBureau() : (() => { throw new Error(`Unknown BUREAU_DRIVER: ${config.BUREAU_DRIVER}`); })();
 export const isGood = (score: number) => score >= GOOD_SCORE;

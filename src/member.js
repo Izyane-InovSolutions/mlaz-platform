@@ -1,6 +1,6 @@
 import {
   esc, K, fmtDate, fmtDateTime, today, icon, statusBadge, accredBadge, mofBadge, payBadge, pageHeader, statCard, empty, listItem,
-  toast, asyncModal, readForm, rerender, expose, busy, jsArg, NRC_ATTRS,
+  toast, asyncModal, readForm, rerender, expose, busy, on, EL, NRC_ATTRS,
 } from './ui.js';
 import { api, download, publicConfig } from './api.js';
 import { checkoutForm, readCheckout, runCheckout } from './checkout.js';
@@ -37,7 +37,7 @@ function bankTransferBlock(p) {
   const line = (k, v) => `<div class="d-flex justify-content-between gap-2"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
   return `<div class="bg-body-tertiary rounded p-3 small d-grid gap-1 mb-3"><div class="fw-semibold mb-1">Pay ${K(p.amount)} into this account</div>
       ${line('Bank', esc(b.bank))}${line('Account name', esc(b.name))}${line('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${line('Branch', esc(b.branch))}${line('Payment reference', `<span class="font-monospace">${esc(p.ref)}</span>`)}</div>
-    <form class="d-grid gap-2" novalidate onsubmit="event.preventDefault();submitProof(${jsArg(p.ref)},this)">
+    <form class="d-grid gap-2" novalidate ${on('submit', 'submitProof', p.ref, EL)}>
       <div><label class="form-label small fw-medium">Your bank transaction reference</label><input class="form-control" name="bankRef" required maxlength="60" placeholder="e.g. FT26285ABC12"><div class="invalid-feedback">Required.</div></div>
       <div><label class="form-label small fw-medium">Proof of payment <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="proof" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach your deposit slip or transfer confirmation.</div></div>
       <button class="btn btn-primary">Submit proof of payment</button></form>`;
@@ -87,7 +87,7 @@ async function overview() {
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Quick actions</h2></div><div class="list-group list-group-flush">
-        ${listItem('award', 'success', 'Accreditation certificate', m.certificate ? esc(m.certificate.serial) : 'Not issued', m.goodStanding && m.certificate ? '<button class="btn btn-sm btn-outline-secondary" onclick="getFile(\'/portal/certificate.pdf\',this)">Download</button>' : '')}
+        ${listItem('award', 'success', 'Accreditation certificate', m.certificate ? esc(m.certificate.serial) : 'Not issued', m.goodStanding && m.certificate ? `<button class="btn btn-sm btn-outline-secondary" ${on('click', 'getFile', '/portal/certificate.pdf', EL)}>Download</button>` : '')}
         ${listItem('file-earmark-arrow-up', 'info', 'Renew MoF authorization', m.mofExpiry ? `Expires ${fmtDate(m.mofExpiry)}` : esc(m.mofRef), '<a class="btn btn-sm btn-outline-secondary" href="#/app/certificates">Upload</a>')}
         ${listItem('credit-card', 'warning', 'Pay annual dues', m.dues.payable ? `${K(m.dues.amount)} due` : `Paid until ${fmtDate(m.validUntil)}`, '<a class="btn btn-sm btn-outline-secondary" href="#/app/dues">Open</a>')}
         ${o.nextEvent ? listItem('calendar-event', 'primary', esc(o.nextEvent.name), `${fmtDate(o.nextEvent.date)} · ${esc(o.nextEvent.venue)}`, `<a class="btn btn-sm btn-outline-secondary" href="#/app/events/${encodeURIComponent(o.nextEvent.id)}">View</a>`) : ''}
@@ -112,7 +112,7 @@ async function certificates() {
         ${row('Reference', esc(m.mofRef))}${row('Status', mofBadge(lower(m.mofStatus)))}${row('Expires', m.mofExpiry ? fmtDate(m.mofExpiry) : '—')}
         ${pending ? note('info', 'hourglass-split', `Renewal <b>${esc(pending.mofRef)}</b> uploaded ${fmtDate(pending.submittedAt)} and awaiting verification by the Secretariat.`, 'mt-3 mb-0')
         : `${lastRejected ? note('danger', 'x-octagon', `Your last renewal (${esc(lastRejected.mofRef)}) was not accepted: ${esc(lastRejected.reviewNote || '')}`, 'mt-3') : ''}
-          <form class="mt-3" novalidate onsubmit="event.preventDefault();uploadRenewal(this)"><h3 class="h6 mt-2">Upload a renewed authorization</h3>
+          <form class="mt-3" novalidate ${on('submit', 'uploadRenewal', EL)}><h3 class="h6 mt-2">Upload a renewed authorization</h3>
           <div class="row g-2"><div class="col-md-6"><input class="form-control" name="mofRef" required maxlength="60" placeholder="New reference, e.g. MoF/ML/2027/0001"><div class="invalid-feedback">Required.</div></div>
           <div class="col-md-6"><input class="form-control" type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach the document.</div></div>
           <div class="col-12"><button class="btn btn-primary">${icon('upload', 'me-1')} Submit for verification</button></div></div></form>`}
@@ -120,7 +120,7 @@ async function certificates() {
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1"><span class="badge text-bg-primary me-2">2</span>MLAZ accreditation</h2></div><div class="card-body d-flex flex-column">
         ${row('Certificate no.', m.certificate ? `<span class="font-monospace">${esc(m.certificate.serial)}</span>` : '—')}${row('Status', accredBadge(lower(m.accreditation)))}${row('Valid until', fmtDate(m.validUntil))}
         <p class="small text-body-secondary mt-3">Issued after your MoF authorization was verified and dues paid. Anyone can verify it by scanning the QR code.</p>
-        <button class="btn btn-primary mt-auto" ${m.goodStanding && m.certificate ? '' : 'disabled'} onclick="getFile('/portal/certificate.pdf',this)">${icon('download', 'me-1')} Download certificate (PDF)</button>
+        <button class="btn btn-primary mt-auto" ${m.goodStanding && m.certificate ? '' : 'disabled'} ${on('click', 'getFile', '/portal/certificate.pdf', EL)}>${icon('download', 'me-1')} Download certificate (PDF)</button>
       </div></div></div>
     </div>
     ${note('light border', 'info-circle', 'Your MoF authorization is verified <b>first</b>, then your MLAZ accreditation is issued. If your MoF authorization lapses, your accreditation is suspended until a renewal is verified.')}`;
@@ -141,7 +141,7 @@ async function dues() {
   if (p?.method === 'BANK_TRANSFER') panel = bankTransferBlock(p);
   else if (p) panel = note('info', 'hourglass-split', `Payment ${esc(p.ref)} (${K(p.amount)} by ${esc(p.methodLabel)}) is waiting for confirmation. This page updates when it is confirmed.`, 'mb-0') + pollLater();
   else if (d.payable) panel = `${checkoutForm('duespay', { methods: cfg.paymentMethods, phone: ME?.contactPhone || '' })}
-      <button class="btn btn-primary w-100 mt-3" onclick="payDues(this)">Pay ${K(d.amount)}</button>
+      <button class="btn btn-primary w-100 mt-3" ${on('click', 'payDues', EL)}>Pay ${K(d.amount)}</button>
       <div class="small text-body-secondary text-center mt-2">${icon('lock', 'me-1')}Secured payment · receipt emailed automatically</div>`;
   else panel = note('success', 'check-circle', `Your dues are paid until <b>${fmtDate(d.validUntil)}</b>. The next payment opens on ${fmtDate(d.opensOn)}.`, 'mb-0');
   return pageHeader('Dues & payments', 'Pay your annual membership dues online')
@@ -154,7 +154,7 @@ async function dues() {
       <div class="table-responsive"><table class="table align-middle mb-0 small"><thead><tr><th>Description</th><th>Method</th><th>Date</th><th class="text-end">Amount</th><th>Status</th><th></th></tr></thead><tbody>
       ${payments.map(x => `<tr><td>${esc(x.event ? `Event: ${x.event.name}` : x.lines.map(l => l.description).join(' · '))}<div class="text-body-secondary font-monospace">${esc(x.ref)}</div></td><td>${esc(x.methodLabel)}</td><td>${fmtDate(x.paidAt || x.createdAt)}</td>
         <td class="text-end fw-medium">${K(x.amount)}</td><td>${payBadge(lower(x.status))}</td>
-        <td class="text-end">${x.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" onclick="getFile(${jsArg(`/portal/payments/${encodeURIComponent(x.ref)}/receipt.pdf`)},this)">${icon('receipt')}</button>` : ''}</td></tr>`).join('') || `<tr><td colspan="6">${empty('No payments yet.', 'credit-card')}</td></tr>`}
+        <td class="text-end">${x.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" ${on('click', 'getFile', `/portal/payments/${encodeURIComponent(x.ref)}/receipt.pdf`, EL)}>${icon('receipt')}</button>` : ''}</td></tr>`).join('') || `<tr><td colspan="6">${empty('No payments yet.', 'credit-card')}</td></tr>`}
       </tbody></table></div></div></div></div>`;
 }
 function payDues(btn) {
@@ -194,8 +194,8 @@ async function eventPage(id) {
     panel = `<div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Your registration</h2></div><div class="card-body">
       ${row('Tickets', tix(r.tickets))}${row('Amount', Number(r.amount) ? K(r.amount) : 'Free')}${row('Status', r.status === 'PENDING' ? badge('Payment pending', 'warning') : badge('Confirmed', 'success'))}
       ${pending}
-      ${r.status === 'CONFIRMED' ? `<div class="d-flex gap-2 mt-3">${r.payment ? `<button class="btn btn-outline-secondary flex-grow-1" onclick="getFile(${jsArg(`/portal/payments/${encodeURIComponent(r.payment.ref)}/receipt.pdf`)},this)">${icon('receipt', 'me-1')} Receipt</button>` : ''}
-        ${Number(r.amount) ? '' : '<button class="btn btn-light flex-grow-1" onclick="cancelReg()">Cancel registration</button>'}</div>
+      ${r.status === 'CONFIRMED' ? `<div class="d-flex gap-2 mt-3">${r.payment ? `<button class="btn btn-outline-secondary flex-grow-1" ${on('click', 'getFile', `/portal/payments/${encodeURIComponent(r.payment.ref)}/receipt.pdf`, EL)}>${icon('receipt', 'me-1')} Receipt</button>` : ''}
+        ${Number(r.amount) ? '' : '<button class="btn btn-light flex-grow-1" data-on-click="cancelReg">Cancel registration</button>'}</div>
         ${Number(r.amount) ? `<div class="small text-body-secondary mt-3">${icon('info-circle', 'me-1')}To change or cancel a paid registration, contact the Secretariat.</div>` : ''}` : ''}
     </div>`;
   } else if (e.status !== 'PUBLISHED') {
@@ -205,14 +205,14 @@ async function eventPage(id) {
   } else {
     panel = `<div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Register</h2></div><div class="card-body">
       <label class="form-label small fw-medium" for="evqty">Number of tickets</label>
-      <input class="form-control" type="number" id="evqty" min="1" max="${max}" value="1" required oninput="evQty()">
+      <input class="form-control" type="number" id="evqty" min="1" max="${max}" value="1" required ${on('input', 'evQty')}>
       <div class="invalid-feedback">Choose between 1 and ${max}.</div>
       <div class="small text-body-secondary mt-1 mb-3">Up to ${tix(max)} per booking · ${e.placesLeft} places left</div>
       ${e.price ? `<div class="d-flex justify-content-between fw-semibold py-2 mb-3 border-top"><span>Total</span><span data-evtotal>${K(e.price)}</span></div>
       ${checkoutForm('evpay', { methods: cfg.paymentMethods, phone: ME?.contactPhone || '' })}
-      <button class="btn btn-primary w-100 mt-3" onclick="registerEvent(this)">Pay and register</button>
+      <button class="btn btn-primary w-100 mt-3" ${on('click', 'registerEvent', EL)}>Pay and register</button>
       <div class="small text-body-secondary text-center mt-2">${icon('lock', 'me-1')}Secured payment · receipt emailed automatically</div>`
-      : '<button class="btn btn-primary w-100" onclick="registerEvent(this)">Register</button>'}
+      : `<button class="btn btn-primary w-100" ${on('click', 'registerEvent', EL)}>Register</button>`}
     </div>`;
   }
   return pageHeader(esc(e.name), `${esc(EVENT_TYPE[e.type] || e.type)} · ${fmtDate(e.date)}`, '', crumbs)
@@ -277,14 +277,14 @@ async function customers() {
   const [r, history] = await Promise.all([portal(`/loans?${new URLSearchParams({ filter: CS.filter, ...(CS.q && { q: CS.q }) })}`), portal('/credit-checks')]);
   LOANS = r.items; SCALE = r.scale;
   const s = r.summary;
-  const chip = (k, label) => `<button class="btn btn-sm ${CS.filter === k ? 'btn-primary' : 'btn-outline-secondary'}" onclick="setCFilter('${k}')">${label}</button>`;
+  const chip = (k, label) => `<button class="btn btn-sm ${CS.filter === k ? 'btn-primary' : 'btn-outline-secondary'}" ${on('click', 'setCFilter', k)}>${label}</button>`;
   const result = !LOOKUP ? '' : LOOKUP.found
-    ? `<div class="card mb-4 border-primary-subtle"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1">Credit report · ${esc(LOOKUP.report.name)}</h2>${LOOKUP.yourLoans.length ? '<span class="badge bg-primary-subtle text-primary-emphasis ms-2">Your customer</span>' : ''}<button class="btn-close ms-auto" aria-label="Close" onclick="clearLookup()"></button></div>
+    ? `<div class="card mb-4 border-primary-subtle"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1">Credit report · ${esc(LOOKUP.report.name)}</h2>${LOOKUP.yourLoans.length ? '<span class="badge bg-primary-subtle text-primary-emphasis ms-2">Your customer</span>' : ''}<button class="btn-close ms-auto" aria-label="Close" ${on('click', 'clearLookup')}></button></div>
         <div class="card-body">${creditReport(LOOKUP.report)}<div class="small text-body-secondary mt-3">${icon('info-circle', 'me-1')}Check logged with your name and the purpose you gave. ${Number(LOOKUP.checksLeftToday)} check${LOOKUP.checksLeftToday === 1 ? '' : 's'} left today.</div></div></div>`
     : note('warning', 'person-x', `The credit bureau has no record for NRC <b class="font-monospace">${esc(LOOKUP.nrc)}</b>. Ask the customer for another form of identification or a payslip.`);
-  return pageHeader('Customers', 'Your loan book and credit checks with the bureau', `<button class="btn btn-primary" onclick="addLoan()">${icon('plus-lg', 'me-1')} Add customer loan</button>`)
+  return pageHeader('Customers', 'Your loan book and credit checks with the bureau', `<button class="btn btn-primary" ${on('click', 'addLoan')}>${icon('plus-lg', 'me-1')} Add customer loan</button>`)
     + `<div class="card mb-4"><div class="card-body">
-      <form class="row g-2 align-items-start" novalidate onsubmit="event.preventDefault();searchNrc(this)">
+      <form class="row g-2 align-items-start" novalidate ${on('submit', 'searchNrc', EL)}>
         <div class="col-md-4"><label class="form-label small fw-medium" for="nrcq">Credit check by NRC number</label>
           <input class="form-control font-monospace" id="nrcq" name="nrc" required ${NRC_ATTRS}><div class="invalid-feedback">Enter all 9 digits, e.g. 284512/11/1.</div></div>
         <div class="col-md-4"><label class="form-label small fw-medium" for="purpose">Purpose</label><select class="form-select" id="purpose" name="purpose">${Object.entries(PURPOSE).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
@@ -301,12 +301,12 @@ async function customers() {
     </div>
     <div class="card mb-4"><div class="card-header bg-white d-flex flex-wrap gap-2 align-items-center">
       <h2 class="h6 mb-0 py-1 me-auto">Your customers</h2>
-      <form class="d-flex" onsubmit="event.preventDefault();setCQuery(this.q.value.trim())"><input class="form-control form-control-sm" style="max-width:220px" type="search" name="q" maxlength="100" placeholder="Filter by name or NRC" value="${esc(CS.q)}"></form>
+      <form class="d-flex" ${on('submit', 'setCQueryFrom', EL)}><input class="form-control form-control-sm" style="max-width:220px" type="search" name="q" maxlength="100" placeholder="Filter by name or NRC" value="${esc(CS.q)}"></form>
       <div class="d-flex gap-1">${chip('all', 'All')}${chip('good', 'Good')}${chip('bad', 'Bad')}</div>
     </div><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Customer</th><th>NRC</th><th class="text-end">Loan</th><th class="text-end">Balance</th><th>Status</th><th>Credit score</th><th></th></tr></thead><tbody>
       ${LOANS.map(c => `<tr><td><div class="fw-medium">${esc(c.borrowerName)}</div><div class="small text-body-secondary">Issued ${fmtDate(c.issuedAt)}</div></td><td class="small font-monospace">${esc(c.borrowerNrc)}</td>
         <td class="text-end">${K(c.amount)}</td><td class="text-end">${K(c.balance)}</td><td>${loanBadge(c.status)}</td><td>${scoreBadge(c.score, c.scoreRating)}</td>
-        <td class="text-end text-nowrap"><button class="btn btn-sm btn-light" title="Edit" onclick="editLoan(${jsArg(c.id)})">${icon('pencil')}</button></td></tr>`).join('')
+        <td class="text-end text-nowrap"><button class="btn btn-sm btn-light" title="Edit" ${on('click', 'editLoan', c.id)}>${icon('pencil')}</button></td></tr>`).join('')
         || `<tr><td colspan="7">${empty(CS.q || CS.filter !== 'all' ? 'No customers match.' : 'No customers yet. Add the loans you have issued to see their credit scores here.', 'people')}</td></tr>`}
     </tbody></table></div></div>
     <div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Credit check log</h2></div>
@@ -316,6 +316,7 @@ async function customers() {
 }
 const setCFilter = k => { CS.filter = ['all', 'good', 'bad'].includes(k) ? k : 'all'; rerender(); };
 const setCQuery = q => { CS.q = q; rerender(); };
+const setCQueryFrom = form => setCQuery(form.q.value.trim());
 const clearLookup = () => { LOOKUP = null; rerender(); };
 async function searchNrc(form) {
   const v = readForm(form); if (!v) return;
@@ -368,7 +369,7 @@ async function announcements() {
     <div class="col-lg-4"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Resource library</h2></div><div class="list-group list-group-flush">
       ${Object.entries(groups).map(([cat, items]) => `<div class="list-group-item bg-body-tertiary small fw-semibold">${icon('folder2', 'me-1')}${esc(cat)}</div>`
         + items.map(r => `<div class="list-group-item d-flex align-items-center gap-2 small"><div class="flex-grow-1 min-w-0"><div class="fw-medium text-truncate">${esc(r.title)}</div><div class="text-body-secondary">${fmtDate(r.createdAt)}</div></div>
-          <button class="btn btn-sm btn-light" title="Download" onclick="getFile(${jsArg(`/portal/resources/${encodeURIComponent(r.id)}/download`)},this)">${icon('download')}</button></div>`).join('')).join('') || empty('No documents yet.', 'folder2')}
+          <button class="btn btn-sm btn-light" title="Download" ${on('click', 'getFile', `/portal/resources/${encodeURIComponent(r.id)}/download`, EL)}>${icon('download')}</button></div>`).join('')).join('') || empty('No documents yet.', 'folder2')}
     </div></div></div></div>`;
 }
 
@@ -382,7 +383,7 @@ async function profile() {
       <h2 class="h6 fw-semibold">Registered details</h2><p class="small text-body-secondary">These appear on your certificate and in the public directory. To change them, contact the Secretariat.</p>
       <div class="row g-3 mb-4">${ro('Business name', m.name)}${ro('Member number', m.number)}${ro('Town', `${m.town}, ${m.province}`)}${ro('Tier', m.tier)}${ro('ZRA TPIN', m.tpin)}${ro('PACRA no.', m.pacra || '—')}</div>
       <h2 class="h6 fw-semibold">Contact details</h2>
-      <form class="row g-3" novalidate onsubmit="event.preventDefault();saveProfile(this)">
+      <form class="row g-3" novalidate ${on('submit', 'saveProfile', EL)}>
         ${f('contactName', 'Contact person', 'text', 'required maxlength="120"')}${f('contactPhone', 'Phone', 'tel', 'required maxlength="20"')}${f('contactEmail', 'Contact email', 'email', 'required maxlength="200"')}
         <div class="col-12"><label class="form-label small fw-medium">Physical address</label><input class="form-control" name="address" maxlength="300" value="${esc(m.address || '')}"></div>
         <div class="col-12"><button class="btn btn-primary">Save changes</button></div>
@@ -405,5 +406,5 @@ export const MEMBER_NAV = [
 export const MEMBER_PAGES = { overview, certificates, dues, customers, events, announcements, profile };
 expose({
   getFile, submitProof, uploadRenewal, payDues, evQty, registerEvent, cancelReg,
-  setCFilter, setCQuery, clearLookup, searchNrc, addLoan, editLoan, saveProfile,
+  setCFilter, setCQueryFrom, clearLookup, searchNrc, addLoan, editLoan, saveProfile,
 });

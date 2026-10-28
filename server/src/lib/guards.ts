@@ -1,6 +1,6 @@
 import type { FastifyRequest } from 'fastify';
 import { prisma } from './db.js';
-import { type AuthUser, actorFor, verifyAccessToken } from './auth.js';
+import { type AuthUser, actorFor, sessionDeadline, verifyAccessToken } from './auth.js';
 import { AppError, forbidden, unauthorized } from './errors.js';
 import { type Permission, can, isStaffRole } from './rbac.js';
 
@@ -12,20 +12,26 @@ declare module 'fastify' {
 }
 
 /**
- * Loads the signed-in user from the bearer token. The user is re-read on every request, so deactivation, role changes
- * and "sign out everywhere" (sessionsValidAfter) take effect immediately rather than when the token expires.
+ * Loads the signed-in user from the bearer token. The session and user are re-read on every request, so sign-out,
+ * the session's absolute deadline, deactivation, role changes and "sign out everywhere" (sessionsValidAfter) take
+ * effect immediately rather than when the access token expires.
  */
 export async function authenticate(req: FastifyRequest) {
   if (req.user) return req.user;
   const header = req.headers.authorization;
   const token = header?.startsWith('Bearer ') ? verifyAccessToken(header.slice(7)) : null;
   if (!token) throw unauthorized();
-  const user = await prisma.user.findFirst({
-    where: { id: token.userId, active: true },
-    select: { id: true, email: true, name: true, title: true, role: true, memberId: true, sessionsValidAfter: true },
+  const session = await prisma.authSession.findUnique({
+    where: { id: token.sessionId },
+    select: {
+      userId: true, createdAt: true, expiresAt: true, revokedAt: true,
+      user: { select: { id: true, email: true, name: true, title: true, role: true, memberId: true, active: true, sessionsValidAfter: true } },
+    },
   });
-  if (!user || (user.sessionsValidAfter && token.issuedAt < user.sessionsValidAfter)) throw unauthorized('Your session has ended. Sign in again.');
-  const { sessionsValidAfter: _, ...u } = user;
+  const user = session?.user;
+  if (!session || !user || session.userId !== token.userId || session.revokedAt || sessionDeadline(session) <= new Date() || !user.active
+    || (user.sessionsValidAfter && token.issuedAt < user.sessionsValidAfter)) throw unauthorized('Your session has ended. Sign in again.');
+  const { sessionsValidAfter: _, active: __, ...u } = user;
   req.user = u;
   req.mfaSetupPending = token.mfaSetup;
   return u;

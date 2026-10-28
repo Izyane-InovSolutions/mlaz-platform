@@ -7,7 +7,7 @@ import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { K, num, sum } from '../lib/money.js';
 import { s } from '../lib/validate.js';
 import { T, notify } from './notifications.js';
-import { type Checkout, EVENT_CANCELLED_REASON, createPayment, initiate, paymentView } from './payments.js';
+import { type Checkout, EVENT_CANCELLED_REASON, createPayment, initiate } from './payments.js';
 
 export const MAX_TICKETS = 10;
 const ACTIVE = { in: ['PENDING', 'CONFIRMED'] } as P.EnumRegistrationStatusFilter;
@@ -200,5 +200,3 @@ export async function cancelRegistration(actor: Actor, memberId: string, eventId
     await audit(tx, actor, m.number, 'Event registration cancelled', e.name);
   });
 }
-
-export { paymentView };

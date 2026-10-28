@@ -1,5 +1,11 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { fileTypeFromBuffer } from 'file-type';
 import { expect } from 'vitest';
+import { config } from '../src/config.js';
+import type { UploadedFile } from '../src/lib/uploads.js';
 import type { MemberStatus, Role } from '../src/generated/prisma/client.js';
 import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/lib/auth.js';
@@ -64,6 +70,16 @@ export async function as(email: string) {
     del: (url: string) => call('DELETE', url),
     multipart: (url: string, form: FormData) => a.inject({ method: 'POST', url: `/api${url}`, headers: bearer(accessToken), payload: form }),
   };
+}
+
+/** An upload as readMultipart leaves it (a private temporary file), for calling services directly. */
+export async function tempUpload(field: string, filename: string, body: Buffer): Promise<UploadedFile> {
+  const dir = path.resolve(config.UPLOAD_TMP_DIR);
+  await mkdir(dir, { recursive: true });
+  const file = path.join(dir, `${randomUUID()}.upload`);
+  await writeFile(file, body);
+  const type = await fileTypeFromBuffer(body);
+  return { field, filename, path: file, size: body.length, sha256: createHash('sha256').update(body).digest('hex'), mimeType: type?.mime ?? null };
 }
 
 export function form(fields: Record<string, string>, files: Record<string, Buffer> = {}) {

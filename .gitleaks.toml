@@ -1,0 +1,17 @@
+# Gitleaks configuration (scripts/gitleaks.mjs). Starts from Gitleaks' built-in rules for API keys, tokens, private
+# keys, passwords and connection strings, and allows only specific, documented false positives.
+# Add an exclusion only for a value you have confirmed is not a real credential; never exclude whole source folders.
+# To accept one finding in place, add the comment `gitleaks:allow` on that line, with a reason, in code review.
+title = "MLAZ platform"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Lockfiles hold integrity hashes, not credentials; Prisma's client is generated."
+paths = ['''(^|/)package-lock\.json$''', '''^server/src/generated/''']
+
+[[allowlists]]
+description = "Documented placeholders in .env.example and the docs, which must be replaced before use."
+regexTarget = "match"
+regexes = ['''change-me[-\w]*''']

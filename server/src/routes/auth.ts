@@ -12,13 +12,20 @@ import { rateLimit } from './helpers.js';
 // sends to /api/auth. Endpoints that act on that cookie also require an allowed Origin and a custom header, which a
 // cross-site form cannot send.
 export const REFRESH_COOKIE = 'mlaz_rt';
+// Marks a browser that has signed in to an account before (see recognisedDevice in services/accounts.ts).
+export const DEVICE_COOKIE = 'mlaz_dev';
 const COOKIE_PATH = '/api/auth';
 
-function setRefreshCookie(reply: FastifyReply, token: string, remember: boolean) {
+/** "Keep me signed in" keeps the cookie until the session's absolute deadline, never longer. */
+function setRefreshCookie(reply: FastifyReply, token: string, remember: boolean, sessionExpiresAt: Date) {
   reply.setCookie(REFRESH_COOKIE, token, {
     httpOnly: true, secure: cookieSecure, sameSite: 'strict', path: COOKIE_PATH,
-    ...(remember && { maxAge: config.REFRESH_TOKEN_TTL_DAYS * 86400 }),
+    ...(remember && { maxAge: Math.max(1, Math.floor((sessionExpiresAt.getTime() - Date.now()) / 1000)) }),
   });
+}
+function rememberDevice(req: FastifyRequest, reply: FastifyReply, email: string) {
+  const { value, maxAge } = accounts.deviceCookieAfterSignIn(req.cookies[DEVICE_COOKIE], email);
+  reply.setCookie(DEVICE_COOKIE, value, { httpOnly: true, secure: cookieSecure, sameSite: 'strict', path: COOKIE_PATH, maxAge });
 }
 const clearRefreshCookie = (reply: FastifyReply) => reply.clearCookie(REFRESH_COOKIE, { path: COOKIE_PATH, httpOnly: true, secure: cookieSecure, sameSite: 'strict' });
 
@@ -31,21 +38,24 @@ function assertCookieRequest(req: FastifyRequest) {
 /** Sends a session: access token in the body, refresh token in the cookie only. */
 function sendSession(reply: FastifyReply, session: accounts.Session) {
   const { refreshToken, ...body } = session;
-  setRefreshCookie(reply, refreshToken, session.remember);
+  setRefreshCookie(reply, refreshToken, session.remember, session.sessionExpiresAt);
   return reply.send(body);
 }
 
 export default async function authRoutes(app: FastifyInstance) {
   app.post('/login', rateLimit(10, '5 minutes'), async (req, reply) => {
     const v = parse(z.object({ email: s.email, password: z.string().min(1).max(200), portal: z.enum(['staff', 'member']).optional(), remember: z.boolean().default(false) }), req.body);
-    const r = await accounts.login(v.email, v.password, v.portal, v.remember, req.ip);
+    const r = await accounts.login(v.email, v.password, v.portal, v.remember, req.ip, req.cookies[DEVICE_COOKIE]);
     if ('mfaRequired' in r) return r;
+    rememberDevice(req, reply, r.user.email);
     return sendSession(reply, r);
   });
 
   app.post('/login/mfa', rateLimit(10, '5 minutes'), async (req, reply) => {
     const v = parse(z.object({ mfaToken: z.string().min(20).max(1000), code: z.string().trim().min(6).max(20) }), req.body);
-    return sendSession(reply, await accounts.completeMfa(v.mfaToken, v.code, req.ip));
+    const session = await accounts.completeMfa(v.mfaToken, v.code, req.ip);
+    rememberDevice(req, reply, session.user.email);
+    return sendSession(reply, session);
   });
 
   app.post('/refresh', rateLimit(30, '1 minute'), async (req, reply) => {

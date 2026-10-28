@@ -1,20 +1,19 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { activity, audit } from '../lib/audit.js';
-import { today } from '../lib/dates.js';
+import { fmtDate, today } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
-import { badRequest, conflict, notFound } from '../lib/errors.js';
+import { conflict, notFound } from '../lib/errors.js';
 import { actorOf, memberIdOf, requireMember, userOf } from '../lib/guards.js';
 import { commitFiles, readMultipart, requireFile, storeFile } from '../lib/uploads.js';
-import { PROVINCES, parse, s } from '../lib/validate.js';
+import { parse, s } from '../lib/validate.js';
 import { listAnnouncements, listResources } from '../services/comms.js';
 import * as events from '../services/events.js';
 import * as lending from '../services/lending.js';
+import * as members from '../services/members.js';
 import { duesInfo, inGoodStanding, memberSummary, submitRenewal } from '../services/membership.js';
-import { attachProof, checkoutSchema, createPayment, guardPending, initiate, paymentByRef, paymentView } from '../services/payments.js';
+import { attachProof, checkoutSchema, paymentByRef, paymentView } from '../services/payments.js';
 import { certificatePdf, receiptPdf } from '../services/pdf.js';
-import { fmtDate } from '../lib/dates.js';
-import { sendDocument, sendPdf } from './helpers.js';
+import { rateLimit, sendDocument, sendPdf } from './helpers.js';
 
 const FULL_PAYMENT = { lines: true, documents: { select: { id: true } }, application: true, member: true, registration: { include: { event: true } } } as const;
 
@@ -42,26 +41,7 @@ export default async function portalRoutes(app: FastifyInstance) {
 
   app.get('/profile', async req => memberSummary(prisma, await me(req)));
 
-  // Members keep their contact details current themselves. The business name, location and registration numbers appear
-  // on certificates and in the public directory, so only the Secretariat changes those.
-  const PROFILE_FIELDS = ['address', 'contactName', 'contactPhone', 'contactEmail'];
-  app.patch('/profile', async req => {
-    const extra = Object.keys((req.body ?? {}) as object).filter(k => !PROFILE_FIELDS.includes(k));
-    if (extra.length) throw badRequest('Only contact details and address can be changed here. Ask the Secretariat to change other details.', { fields: extra.map(field => ({ field, message: 'Not editable' })) });
-    const v = parse(z.object({
-      address: z.string().trim().max(300), contactName: s.line(120), contactPhone: s.phone, contactEmail: s.email,
-    }).partial(), req.body);
-    const m = await me(req);
-    const changed = Object.entries(v).filter(([k, val]) => (m as Record<string, unknown>)[k] !== val).map(([k, val]) => `${k}: ${val}`);
-    if (!changed.length) return memberSummary(prisma, m);
-    const updated = await prisma.$transaction(async tx => {
-      const u = await tx.member.update({ where: { id: m.id }, data: v });
-      await activity(tx, m.id, 'profile_updated', 'Profile updated', changed.join(' · '));
-      await audit(tx, actorOf(req), m.number, 'Profile updated by member', changed.join(' · '));
-      return u;
-    });
-    return memberSummary(prisma, updated);
-  });
+  app.patch('/profile', async req => members.updateOwnProfile(actorOf(req), memberIdOf(req), req.body));
 
   app.get('/activity', async req => prisma.memberActivity.findMany({ where: { memberId: memberIdOf(req) }, orderBy: { at: 'desc' }, take: 100 }));
 
@@ -75,7 +55,7 @@ export default async function portalRoutes(app: FastifyInstance) {
 
   app.get('/mof-renewals', async req => prisma.mofRenewal.findMany({ where: { memberId: memberIdOf(req) }, orderBy: { submittedAt: 'desc' } }));
 
-  app.post('/mof-renewals', async (req, reply) => {
+  app.post('/mof-renewals', rateLimit(20, '1 hour'), async (req, reply) => {
     const { fields, files } = await readMultipart(req);
     const v = parse(z.object({ mofRef: s.text(60) }), fields);
     const stored = await storeFile(requireFile(files, 'file', 'renewed MoF authorization'), 'MOF_AUTHORIZATION');
@@ -93,23 +73,8 @@ export default async function portalRoutes(app: FastifyInstance) {
     return { tier: m.tierName, validUntil: m.validUntil, ...info, history, pendingPayment: pending && (await paymentView(pending)) };
   });
 
-  app.post('/dues/payments', async (req, reply) => {
-    const checkout = parse(checkoutSchema, req.body);
-    const m = await me(req);
-    const dues = await duesInfo(prisma, m);
-    if (!dues.payable) throw conflict(`Dues for the next period can be paid from ${fmtDate(dues.opensOn)}.`, 'DUES_NOT_PAYABLE');
-    if (m.status === 'SUSPENDED') throw conflict('Your membership is suspended. Contact the Secretariat before paying dues.', 'SUSPENDED');
-    const p = await prisma.$transaction(async tx => {
-      await guardPending(tx, { memberId: m.id, purpose: 'DUES' });
-      const payment = await createPayment(tx, {
-        purpose: 'DUES', memberId: m.id, payerName: m.name, method: checkout.method, msisdn: checkout.msisdn,
-        lines: [{ type: 'DUES', description: `Annual dues (${m.tierName}) · ${fmtDate(dues.periodStart)} to ${fmtDate(dues.periodEnd)}`, unitAmount: dues.amount }],
-      });
-      await audit(tx, actorOf(req), m.number, 'Dues payment started', `${payment.ref} · ${checkout.method}`);
-      return payment;
-    });
-    return reply.status(201).send(await initiate(p.id));
-  });
+  app.post('/dues/payments', async (req, reply) =>
+    reply.status(201).send(await members.startDuesPayment(actorOf(req), memberIdOf(req), parse(checkoutSchema, req.body))));
 
   const ownPayment = async (req: FastifyRequest) => {
     const p = await paymentByRef((req.params as { ref: string }).ref);
@@ -122,7 +87,7 @@ export default async function portalRoutes(app: FastifyInstance) {
     return Promise.all(ps.map(paymentView));
   });
   app.get('/payments/:ref', async req => paymentView(await ownPayment(req)));
-  app.post('/payments/:ref/proof', async req => {
+  app.post('/payments/:ref/proof', rateLimit(20, '1 hour'), async req => {
     const p = await ownPayment(req);
     const { fields, files } = await readMultipart(req);
     const v = parse(z.object({ bankRef: s.text(60) }), fields);

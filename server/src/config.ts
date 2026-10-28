@@ -1,4 +1,6 @@
 import 'dotenv/config';
+import os from 'node:os';
+import path from 'node:path';
 import { z } from 'zod';
 
 const flag = (fallback: boolean) => z.enum(['true', 'false']).default(fallback ? 'true' : 'false').transform(v => v === 'true');
@@ -10,10 +12,18 @@ const schema = z.object({
   PORT: z.coerce.number().int().default(3000),
   LOG_LEVEL: z.string().default('info'),
   DATABASE_URL: z.string().min(1),
+  // Connections per instance (pg's own default is 10), how long a request waits for one before failing instead of
+  // hanging, and an optional cap on any single SQL statement (0 = none; reports and exports can take a while).
+  DB_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
+  DB_CONNECT_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(10),
+  DB_STATEMENT_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(0),
 
   JWT_SECRET: z.string().min(32, 'JWT_SECRET must be at least 32 characters'),
   ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().max(60).default(15),
-  REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().positive().max(90).default(30),
+  // A session ends after this long without a refresh (idle), and in any case this long after sign-in (absolute).
+  // Refreshing never moves the absolute deadline. Lowering either value also shortens sessions that already exist.
+  SESSION_IDLE_TIMEOUT_HOURS: z.coerce.number().int().min(1).max(720).default(24),
+  SESSION_ABSOLUTE_LIFETIME_HOURS: z.coerce.number().int().min(1).max(2160).default(168),
   // Encrypts secrets at rest (two-factor keys). At least 32 characters; changing it disables existing 2FA enrolments.
   DATA_ENCRYPTION_KEY: z.string().min(32, 'DATA_ENCRYPTION_KEY must be at least 32 characters'),
   REQUIRE_STAFF_2FA: flag(false),
@@ -31,6 +41,13 @@ const schema = z.object({
 
   STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
   STORAGE_DIR: z.string().default('./storage'),
+  // Uploads stream to private temporary files (never held in memory), then move to storage once validated.
+  UPLOAD_TMP_DIR: z.string().default(path.join(os.tmpdir(), 'mlaz-uploads')),
+  UPLOAD_MAX_FILE_MB: z.coerce.number().int().min(1).max(50).default(10),
+  UPLOAD_MAX_CONCURRENT: z.coerce.number().int().min(1).max(200).default(8), // uploads in progress per instance
+  UPLOAD_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(900).default(120), // to receive a whole upload
+  UPLOAD_TEMP_QUOTA_MB: z.coerce.number().int().min(10).default(400), // bytes in temporary files per instance
+  STORAGE_QUOTA_MB: z.coerce.number().int().min(1).default(20_480), // all stored documents together
   S3_BUCKET: optional,
   S3_REGION: optional,
   S3_ENDPOINT: optional,
@@ -44,6 +61,9 @@ const schema = z.object({
 
   PAYMENT_PROVIDER: z.enum(['sandbox']).default('sandbox'),
   SANDBOX_SETTLE_SECONDS: z.coerce.number().int().min(0).default(5),
+  // How long a payer waits for the gateway to accept a payment request before being told to try again. A gateway that
+  // answers later still has its reference recorded, so its eventual confirmation is applied.
+  PAYMENT_INITIATE_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
   WEBHOOK_SECRET: z.string().min(8),
 
   BUREAU_DRIVER: z.enum(['simulated']).default('simulated'),
@@ -51,6 +71,8 @@ const schema = z.object({
 
   JOBS_ENABLED: flag(true),
   ALLOW_SANDBOX_IN_PRODUCTION: flag(false),
+}).refine(c => c.SESSION_ABSOLUTE_LIFETIME_HOURS >= c.SESSION_IDLE_TIMEOUT_HOURS, {
+  path: ['SESSION_ABSOLUTE_LIFETIME_HOURS'], message: 'must be at least SESSION_IDLE_TIMEOUT_HOURS',
 });
 
 const parsed = schema.safeParse(process.env);
@@ -64,6 +86,8 @@ export const config = parsed.data;
 export const isProd = config.NODE_ENV === 'production';
 export const isTest = config.NODE_ENV === 'test';
 export const cookieSecure = config.COOKIE_SECURE ?? isProd;
+// Replaced by the idle and absolute session limits; say so rather than silently ignore it.
+if (process.env.REFRESH_TOKEN_TTL_DAYS) console.warn('REFRESH_TOKEN_TTL_DAYS is no longer used: set SESSION_IDLE_TIMEOUT_HOURS and SESSION_ABSOLUTE_LIFETIME_HOURS instead.');
 
 /** Settings that would leave a production server open. Pure, so the rules can be tested without exiting. */
 export function productionProblems(c: Config, env: Record<string, string | undefined>) {
