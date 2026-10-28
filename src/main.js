@@ -3,25 +3,24 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import './styles.scss';
 import 'bootstrap';
 import { Offcanvas } from 'bootstrap';
-import { getSession, setSession, setRenderer, flushAfter, clearAfter, closeAllModals, nav, expose, icon, esc, initials } from './ui.js';
-import { can, ensureSession, signOut } from './api.js';
+import { getSession, setSession, setRenderer, flushAfter, closeAllModals, nav, expose, icon, esc, initials, after, rerender, toast, STAFF, staffFor } from './ui.js';
 import { PUBLIC, publicLayout, scrollPendingSection } from './public.js';
-import { ADMIN_NAV, ADMIN_PAGES, ADMIN_PAGE_PERM, adminSearch, refreshNavCounts } from './admin.js';
-import { MEMBER_NAV, MEMBER_PAGES, refreshMember } from './member.js';
+import { ADMIN_NAV, ADMIN_PAGES, adminSearch } from './admin.js';
+import { MEMBER_NAV, MEMBER_PAGES, currentMember } from './member.js';
 
 /* ================= APP SHELL ================= */
 function appLayout(session, page, inner) {
   const admin = session.role === 'admin';
   const navDef = admin ? ADMIN_NAV : MEMBER_NAV;
-  const user = admin ? { name: session.name, sub: session.title, init: initials(session.name) } : { name: session.name, sub: session.memberName || '', init: initials(session.memberName || session.name) };
-  // Only the pages the signed-in role can open; a section with nothing left is dropped.
-  const sidebar = navDef.map(([section, items]) => {
-    const visible = items.filter(it => !admin || !it[4] || can(it[4]));
-    return visible.length ? `<div class="nav-section">${section}</div>` + visible.map(([id, label, ic, badge]) => {
-      const n = badge ? badge() : 0;
-      return `<a class="nav-link ${id === page ? 'active' : ''}" href="#/app/${id}">${icon(ic)}<span>${label}</span>${n ? `<span class="badge rounded-pill text-bg-danger">${n}</span>` : ''}</a>`;
-    }).join('') : '';
-  }).join('');
+  const m = admin ? null : currentMember();
+  const st = admin && staffFor(session.email);
+  const user = admin ? { name: st.name, sub: st.title, init: initials(st.name) } : { name: m.contact, sub: m.name, init: initials(m.name) };
+  // Demo only: lets one person play both maker and checker without signing out.
+  const switchTo = admin ? Object.entries(STAFF).filter(([e]) => e !== session.email).map(([e, o]) => `<li><a class="dropdown-item" href="javascript:void 0" onclick="switchStaff('${e}')">${icon('arrow-left-right', 'me-2')}Switch to ${esc(o.name)} <span class="small text-body-secondary">(${esc(o.title)})</span></a></li>`).join('') : '';
+  const sidebar = navDef.map(([section, items]) => `<div class="nav-section">${section}</div>` + items.map(([id, label, ic, badge]) => {
+    const n = badge ? badge() : 0;
+    return `<a class="nav-link ${id === page ? 'active' : ''}" href="#/app/${id}">${icon(ic)}<span>${label}</span>${n ? `<span class="badge rounded-pill text-bg-danger">${n}</span>` : ''}</a>`;
+  }).join('')).join('');
   return `
   <aside class="app-sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebar">
     <div class="offcanvas-header">
@@ -50,7 +49,7 @@ function appLayout(session, page, inner) {
               ${icon('chevron-down', 'small text-body-secondary')}
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-              ${admin ? `<li><span class="dropdown-item-text small text-body-secondary">${esc(session.email)}</span></li>` : `<li><a class="dropdown-item" href="#/app/profile">${icon('building', 'me-2')}Business profile</a></li>`}
+              ${admin ? switchTo : `<li><a class="dropdown-item" href="#/app/profile">${icon('building', 'me-2')}Business profile</a></li>`}
               <li><a class="dropdown-item" href="#/">${icon('globe', 'me-2')}Public website</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item text-danger" href="javascript:void 0" onclick="logout()">${icon('box-arrow-right', 'me-2')}Sign out</a></li>
@@ -63,88 +62,41 @@ function appLayout(session, page, inner) {
   </div>`;
 }
 
-// Console search: debounced, and only the latest query's results are shown.
-let searchTimer = null, searchSeq = 0;
 function topSearch(q) {
-  clearTimeout(searchTimer);
-  searchTimer = setTimeout(async () => {
-    const seq = ++searchSeq, box = document.getElementById('searchres');
-    let html;
-    try { html = await adminSearch(q); } catch (e) { html = `<span class="dropdown-item-text small text-danger">${esc(e.message)}</span>`; }
-    if (seq !== searchSeq || !box) return;
-    box.innerHTML = html; box.classList.toggle('show', !!html);
-  }, 250);
+  const box = document.getElementById('searchres');
+  const html = adminSearch(q);
+  box.innerHTML = html; box.classList.toggle('show', !!html);
 }
 document.addEventListener('click', e => { if (!e.target.closest('.app-search')) document.getElementById('searchres')?.classList.remove('show'); });
 
-async function logout() { await signOut(); nav(''); }
+function logout() { setSession(null); nav(''); }
+function switchStaff(email) { setSession({ role: 'admin', email, name: staffFor(email).name }); rerender(); toast(`Signed in as ${staffFor(email).name}`); }
 
 /* ================= ROUTER ================= */
-const loading = () => `<div class="d-flex justify-content-center align-items-center py-5 min-vh-75"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">Loading…</span></div></div>`;
-const failed = e => `<section class="py-5 min-vh-75"><div class="container" style="max-width:640px"><div class="card border-danger-subtle"><div class="card-body p-4 d-flex gap-3">
-  <span class="icon-circle bg-danger-subtle text-danger-emphasis" style="width:48px;height:48px;font-size:1.4rem">${icon(e?.code === 'NETWORK' ? 'wifi-off' : 'exclamation-octagon')}</span>
-  <div><h2 class="h5 mb-1">This page couldn’t be loaded</h2><p class="small text-body-secondary mb-3">${esc(e?.message || 'Something went wrong.')}</p>
-  <button class="btn btn-primary btn-sm" onclick="rerender()">${icon('arrow-clockwise', 'me-1')}Try again</button></div></div></div></div></section>`;
-
-let lastHash = null, renderSeq = 0;
-async function route() {
-  const seq = ++renderSeq;
-  // Links in emails carry a query string, e.g. #/track/APP-2045?t=… or #/set-password?token=…
-  const [path, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
-  // A malformed escape (e.g. a stray "%") is kept as typed rather than throwing and blanking the page.
-  const decode = s => { try { return decodeURIComponent(s); } catch (e) { return s; } };
-  const [a = '', b, c] = path.split('/').map(decode);
+let lastHash = null;
+function route() {
+  const [a = '', b, c] = location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent);
   const root = document.getElementById('root');
-  const sameView = location.hash === lastHash;
-  if (!sameView) { closeAllModals(); Offcanvas.getInstance(document.getElementById('sidebar'))?.hide(); }
+  if (location.hash !== lastHash) { closeAllModals(); Offcanvas.getInstance(document.getElementById('sidebar'))?.hide(); }
 
   if (a === 'app') {
-    let s = getSession();
-    const admin = s?.role === 'admin';
-    const toLogin = () => { setSession(null); nav(admin ? 'login/admin' : 'login/member'); };
-    // The access token lives in memory only: after a reload it is restored from the httpOnly session cookie.
-    if (!s || !(await ensureSession())) return seq === renderSeq ? toLogin() : undefined;
-    if (seq !== renderSeq) return;
-    s = getSession();
-    if (admin && s.mfaSetupRequired) return nav('secure-account');
-    const pages = admin ? ADMIN_PAGES : MEMBER_PAGES;
-    const allowed = id => !!pages[id] && (!admin || !ADMIN_PAGE_PERM[id] || can(ADMIN_PAGE_PERM[id]));
-    const page = allowed(b) ? b : Object.keys(pages).find(allowed);
-    document.title = `${page.charAt(0).toUpperCase() + page.slice(1)} · MLAZ ${admin ? 'Secretariat' : 'Member portal'}`;
-    const out = pages[page](c, new URLSearchParams(query));
-    if (out instanceof Promise) {
-      if (!sameView || !root.querySelector('.app-main')) root.innerHTML = appLayout(s, page, loading());
-      let inner;
-      try { [inner] = await Promise.all([out, admin ? refreshNavCounts() : refreshMember()]); } catch (e) {
-        if (e.status === 401 || !getSession()) { if (seq === renderSeq) toLogin(); return; } // session ended
-        inner = failed(e);
-      }
-      if (seq !== renderSeq) { clearAfter(); return; }
-      root.innerHTML = appLayout(getSession() || s, page, inner);
-    } else {
-      root.innerHTML = appLayout(s, page, out);
-    }
+    const s = getSession();
+    if (!s || (s.role === 'member' && !currentMember())) { setSession(null); return nav('login/member'); }
+    const pages = s.role === 'admin' ? ADMIN_PAGES : MEMBER_PAGES;
+    const page = pages[b] ? b : Object.keys(pages)[0];
+    root.innerHTML = appLayout(s, page, pages[page](c));
+    document.title = `${page.charAt(0).toUpperCase() + page.slice(1)} · MLAZ ${s.role === 'admin' ? 'Secretariat' : 'Member portal'}`;
   } else {
     const view = PUBLIC[a] || PUBLIC[''];
+    root.innerHTML = publicLayout(view(b), a);
     document.title = 'MLAZ — Money Lenders Association of Zambia';
-    const out = view(b, new URLSearchParams(query));
-    if (out instanceof Promise) {
-      // Pages that load from the API: show a spinner on arrival, keep the old content while refreshing in place.
-      if (!sameView || !root.querySelector('main')) root.innerHTML = publicLayout(loading(), a);
-      let inner;
-      try { inner = await out; } catch (e) { inner = failed(e); }
-      if (seq !== renderSeq) { clearAfter(); return; } // the user has already moved on
-      root.querySelector('main').innerHTML = inner;
-    } else {
-      root.innerHTML = publicLayout(out, a);
-    }
   }
   flushAfter();
   if (!scrollPendingSection() && location.hash !== lastHash) window.scrollTo(0, 0);
   lastHash = location.hash;
 }
 
-expose({ topSearch, logout });
+expose({ topSearch, logout, switchStaff });
 setRenderer(route);
 window.addEventListener('hashchange', route);
 route();
