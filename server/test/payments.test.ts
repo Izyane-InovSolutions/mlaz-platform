@@ -163,12 +163,12 @@ describe('payment webhooks and settlement', () => {
       return { providerRef: `late-${Date.now()}`, status: 'PENDING' };
     });
     try {
-      const started = Date.now();
+      // Failed as unreachable (not pending with a reference) proves the timeout fired before the gateway answered.
+      // No wall-clock assertion: sign-in and setup time vary too much between machines.
       const p = await pendingPayment();
-      expect(Date.now() - started).toBeLessThan((config.PAYMENT_INITIATE_TIMEOUT_SECONDS + 0.5) * 1000);
-      expect(p).toMatchObject({ status: 'FAILED', failureReason: UNREACHABLE_REASON });
+      expect(p).toMatchObject({ status: 'FAILED', failureReason: UNREACHABLE_REASON, providerRef: null });
       let providerRef: string | null = null;
-      for (let i = 0; i < 40 && !providerRef; i++) {
+      for (const deadline = Date.now() + 5000; !providerRef && Date.now() < deadline;) {
         await new Promise(r => setTimeout(r, 50));
         providerRef = (await prisma.payment.findUniqueOrThrow({ where: { id: p.id } })).providerRef;
       }
