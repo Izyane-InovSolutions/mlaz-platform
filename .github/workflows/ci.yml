@@ -38,6 +38,10 @@ jobs:
       - run: npm ci
       - run: npm ci
         working-directory: server
+        env:
+          # postinstall runs `prisma generate`, which loads prisma.config.ts and needs the variable set. It never
+          # connects, so a placeholder will do; this job has no database.
+          DATABASE_URL: postgresql://unused:unused@localhost:5432/unused
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck
