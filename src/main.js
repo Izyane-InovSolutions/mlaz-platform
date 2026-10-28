@@ -3,7 +3,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 import './styles.scss';
 import 'bootstrap';
 import { Offcanvas } from 'bootstrap';
-import { getSession, setSession, setRenderer, flushAfter, clearAfter, closeAllModals, nav, expose, icon, esc, initials } from './ui.js';
+import { getSession, setSession, setRenderer, flushAfter, clearAfter, closeAllModals, nav, expose, icon, esc, initials, on, EL } from './ui.js';
 import { can, ensureSession, signOut } from './api.js';
 import { PUBLIC, publicLayout, scrollPendingSection } from './public.js';
 import { ADMIN_NAV, ADMIN_PAGES, ADMIN_PAGE_PERM, adminSearch, refreshNavCounts } from './admin.js';
@@ -39,7 +39,7 @@ function appLayout(session, page, inner) {
       <div class="d-flex align-items-center gap-3 px-3 px-lg-4 py-2">
         <button class="btn btn-light d-lg-none" data-bs-toggle="offcanvas" data-bs-target="#sidebar" aria-label="Menu">${icon('list')}</button>
         ${admin ? `<div class="app-search flex-grow-1 dropdown">
-          <div class="input-group"><span class="input-group-text bg-body-tertiary border-end-0">${icon('search')}</span><input class="form-control bg-body-tertiary border-start-0" id="topsearch" placeholder="Search members and applications" autocomplete="off" oninput="topSearch(this.value)"></div>
+          <div class="input-group"><span class="input-group-text bg-body-tertiary border-end-0">${icon('search')}</span><input class="form-control bg-body-tertiary border-start-0" id="topsearch" placeholder="Search members and applications" autocomplete="off" ${on('input', 'topSearch', EL)}></div>
           <div class="dropdown-menu shadow-sm" id="searchres"></div></div>` : ''}
         <div class="ms-auto d-flex align-items-center gap-2">
           <a class="btn btn-light d-none d-md-inline-flex align-items-center gap-1" href="#/" title="Public website">${icon('globe')}<span class="small">Website</span></a>
@@ -53,7 +53,7 @@ function appLayout(session, page, inner) {
               ${admin ? `<li><span class="dropdown-item-text small text-body-secondary">${esc(session.email)}</span></li>` : `<li><a class="dropdown-item" href="#/app/profile">${icon('building', 'me-2')}Business profile</a></li>`}
               <li><a class="dropdown-item" href="#/">${icon('globe', 'me-2')}Public website</a></li>
               <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item text-danger" href="javascript:void 0" onclick="logout()">${icon('box-arrow-right', 'me-2')}Sign out</a></li>
+              <li><a class="dropdown-item text-danger" href="#" role="button" ${on('click', 'logout')}>${icon('box-arrow-right', 'me-2')}Sign out</a></li>
             </ul>
           </div>
         </div>
@@ -65,7 +65,8 @@ function appLayout(session, page, inner) {
 
 // Console search: debounced, and only the latest query's results are shown.
 let searchTimer = null, searchSeq = 0;
-function topSearch(q) {
+function topSearch(input) {
+  const q = input.value;
   clearTimeout(searchTimer);
   searchTimer = setTimeout(async () => {
     const seq = ++searchSeq, box = document.getElementById('searchres');
@@ -84,7 +85,7 @@ const loading = () => `<div class="d-flex justify-content-center align-items-cen
 const failed = e => `<section class="py-5 min-vh-75"><div class="container" style="max-width:640px"><div class="card border-danger-subtle"><div class="card-body p-4 d-flex gap-3">
   <span class="icon-circle bg-danger-subtle text-danger-emphasis" style="width:48px;height:48px;font-size:1.4rem">${icon(e?.code === 'NETWORK' ? 'wifi-off' : 'exclamation-octagon')}</span>
   <div><h2 class="h5 mb-1">This page couldn’t be loaded</h2><p class="small text-body-secondary mb-3">${esc(e?.message || 'Something went wrong.')}</p>
-  <button class="btn btn-primary btn-sm" onclick="rerender()">${icon('arrow-clockwise', 'me-1')}Try again</button></div></div></div></div></section>`;
+  <button class="btn btn-primary btn-sm" ${on('click', 'rerender')}>${icon('arrow-clockwise', 'me-1')}Try again</button></div></div></div></div></section>`;
 
 let lastHash = null, renderSeq = 0;
 async function route() {

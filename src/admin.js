@@ -1,6 +1,6 @@
 import {
   esc, K, KM, fmtDate, fmtDateTime, today, icon, avatar, statusBadge, tierBadge, accredBadge, mofBadge, payBadge, stageBadge,
-  pageHeader, statCard, stepper, empty, listItem, toast, modal, asyncModal, nav, rerender, expose, printDoc, busy, getSession, jsArg,
+  pageHeader, statCard, stepper, empty, listItem, toast, modal, asyncModal, nav, rerender, expose, printDoc, busy, getSession, on, EL,
 } from './ui.js';
 import { api, can, download, publicConfig } from './api.js';
 import { accountCard } from './security.js';
@@ -19,13 +19,15 @@ const note = (tone, ic, html, cls = '') => `<div class="alert alert-${tone} smal
 const info = (k, v) => `<div class="d-flex justify-content-between gap-3 py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v ?? '—'}</span></div>`;
 const crumb = (href, label, current) => `<li class="breadcrumb-item"><a href="#/app/${href}">${label}</a></li><li class="breadcrumb-item active">${esc(current)}</li>`;
 const tableCard = (head, rows, emptyText, footer = '') => `<div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr>${head.map(h => `<th class="${h.startsWith('#') ? 'text-end' : ''}">${h.replace('#', '')}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${head.length}">${empty(emptyText)}</td></tr>`}</tbody></table></div>${footer}</div>`;
-const pills = (items, active, fn) => `<ul class="nav nav-pills small mb-3 gap-1">${items.map(([k, l]) => `<li class="nav-item"><a class="nav-link ${active === k ? 'active' : ''}" href="javascript:void 0" onclick="${fn}('${k}')">${l}</a></li>`).join('')}</ul>`;
-const searchBox = (value, fn, ph) => `<form class="mb-3" style="max-width:420px" onsubmit="event.preventDefault();${fn}(this.q.value.trim())"><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" name="q" value="${esc(value)}" placeholder="${ph}">${value ? `<button class="btn btn-outline-secondary" type="button" onclick="${fn}('')">Clear</button>` : ''}</div></form>`;
+const pills = (items, active, fn) => `<ul class="nav nav-pills small mb-3 gap-1">${items.map(([k, l]) => `<li class="nav-item"><a class="nav-link ${active === k ? 'active' : ''}" href="#" role="button" ${on('click', fn, k)}>${l}</a></li>`).join('')}</ul>`;
+const searchBox = (value, fn, ph) => `<form class="mb-3" style="max-width:420px" ${on('submit', 'runSearch', fn, EL)}><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" name="q" value="${esc(value)}" placeholder="${ph}">${value ? `<button class="btn btn-outline-secondary" type="button" ${on('click', fn, '')}>Clear</button>` : ''}</div></form>`;
+// The search boxes above name one of these setters; the form gives the query.
+const runSearch = (fn, form) => ({ setMQuery, setAQuery, setPQuery })[fn]?.(form.q.value.trim());
 function pager(r, fn) {
   if (!r.total) return '';
   const from = (r.page - 1) * r.pageSize + 1, to = Math.min(r.total, r.page * r.pageSize);
   return `<div class="card-footer bg-white d-flex justify-content-between align-items-center small"><span class="text-body-secondary">${from}–${to} of ${r.total}</span>
-    ${r.total > r.pageSize ? `<div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" ${r.page <= 1 ? 'disabled' : ''} onclick="${fn}(${r.page - 1})">Previous</button><button class="btn btn-outline-secondary" ${to >= r.total ? 'disabled' : ''} onclick="${fn}(${r.page + 1})">Next</button></div>` : ''}</div>`;
+    ${r.total > r.pageSize ? `<div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" ${r.page <= 1 ? 'disabled' : ''} ${on('click', fn, r.page - 1)}>Previous</button><button class="btn btn-outline-secondary" ${to >= r.total ? 'disabled' : ''} ${on('click', fn, r.page + 1)}>Next</button></div>` : ''}</div>`;
 }
 const DOC_KIND = { MOF_AUTHORIZATION: 'Ministry of Finance authorization', PACRA_CERTIFICATE: 'PACRA certificate of incorporation', DIRECTOR_NRC: 'Director’s NRC', PROOF_OF_PAYMENT: 'Proof of payment', RESOURCE: 'Resource' };
 const EVENT_TYPE = { TRAINING: 'Training', WEBINAR: 'Webinar', AGM: 'AGM', NETWORKING: 'Networking' };
@@ -72,8 +74,8 @@ const auditCard = rows => `<div class="card mt-3"><div class="card-header bg-whi
 const payDesc = p => esc(p.event ? `${p.event.name} (${p.event.tickets} ticket${p.event.tickets === 1 ? '' : 's'})` : p.lines.map(l => l.description).join(' · '));
 function paymentRow(p, { payer = true } = {}) {
   const review = p.status === 'PENDING' && p.method === 'BANK_TRANSFER' && p.hasProof && can('payments:confirm');
-  const action = review ? `<button class="btn btn-sm btn-outline-primary text-nowrap" onclick="reviewPayment(${jsArg(p.ref)})">Review PoP</button>`
-    : p.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" onclick="getFile('/admin/payments/${esc(p.ref)}/receipt.pdf',this)">${icon('receipt')}</button>`
+  const action = review ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'reviewPayment', p.ref)}>Review PoP</button>`
+    : p.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" ${on('click', 'getFile', `/admin/payments/${encodeURIComponent(p.ref)}/receipt.pdf`, EL)}>${icon('receipt')}</button>`
       : p.status === 'PENDING' && p.method === 'BANK_TRANSFER' && !p.hasProof ? '<span class="small text-body-secondary">Awaiting proof</span>' : '';
   return `<tr><td class="small font-monospace">${esc(p.ref)}</td>
     ${payer ? `<td><div class="fw-medium">${esc(p.payerName)}</div><div class="small text-body-secondary">${fmtDateTime(p.createdAt)}${p.memberNumber ? ` · <a href="#/app/members/${esc(p.memberNumber)}">${esc(p.memberNumber)}</a>` : p.applicationRef ? ` · <a href="#/app/applications/${esc(p.applicationRef)}">${esc(p.applicationRef)}</a>` : ''}</div></td>` : `<td class="small">${fmtDateTime(p.createdAt)}</td>`}
@@ -84,24 +86,24 @@ function paymentRow(p, { payer = true } = {}) {
 
 /* ================= DASHBOARD ================= */
 const ATTENTION = {
-  mof_to_verify: ['file-earmark-check', 'warning', t => `nav(${jsArg(`app/applications/${t}`)})`, 'Review'],
-  awaiting_your_approval: ['person-check', 'primary', t => `nav(${jsArg(`app/applications/${t}`)})`, 'Review'],
-  renewal_to_verify: ['file-earmark-check', 'warning', t => `nav(${jsArg(`app/members/${t}`)})`, 'Review'],
-  bank_transfer_to_confirm: ['bank', 'info', t => `reviewPayment(${jsArg(t)})`, 'Review'],
-  member_lapsed: ['hourglass-bottom', 'warning', t => `nav(${jsArg(`app/members/${t}`)})`, 'View'],
-  member_suspended: ['exclamation-octagon', 'danger', t => `nav(${jsArg(`app/members/${t}`)})`, 'View'],
+  mof_to_verify: ['file-earmark-check', 'warning', t => ['nav', `app/applications/${t}`], 'Review'],
+  awaiting_your_approval: ['person-check', 'primary', t => ['nav', `app/applications/${t}`], 'Review'],
+  renewal_to_verify: ['file-earmark-check', 'warning', t => ['nav', `app/members/${t}`], 'Review'],
+  bank_transfer_to_confirm: ['bank', 'info', t => ['reviewPayment', t], 'Review'],
+  member_lapsed: ['hourglass-bottom', 'warning', t => ['nav', `app/members/${t}`], 'View'],
+  member_suspended: ['exclamation-octagon', 'danger', t => ['nav', `app/members/${t}`], 'View'],
 };
 
 async function dashboard() {
   const [d, cfg] = await Promise.all([adm('/dashboard'), publicConfig()]);
   const s = d.stats;
   const attention = d.attention.map(a => {
-    const [ic, tone, go, label] = ATTENTION[a.kind] || ['info-circle', 'secondary', t => `nav(${jsArg(`app/members/${t}`)})`, 'View'];
-    return listItem(ic, tone, esc(a.title), esc(a.detail), `<button class="btn btn-sm btn-outline-secondary" onclick="${go(a.target)}">${label}</button>`);
+    const [ic, tone, go, label] = ATTENTION[a.kind] || ['info-circle', 'secondary', t => ['nav', `app/members/${t}`], 'View'];
+    return listItem(ic, tone, esc(a.title), esc(a.detail), `<button class="btn btn-sm btn-outline-secondary" ${on('click', ...go(a.target))}>${label}</button>`);
   });
-  if (s.duesDue && can('comms:write')) attention.push(listItem('envelope', 'info', `${s.duesDue} member${s.duesDue === 1 ? '' : 's'} with dues due`, 'Send a renewal reminder', '<button class="btn btn-sm btn-outline-secondary" onclick="broadcast(\'DUES_DUE\')">Notify</button>'));
+  if (s.duesDue && can('comms:write')) attention.push(listItem('envelope', 'info', `${s.duesDue} member${s.duesDue === 1 ? '' : 's'} with dues due`, 'Send a renewal reminder', `<button class="btn btn-sm btn-outline-secondary" ${on('click', 'broadcast', 'DUES_DUE')}>Notify</button>`));
   return pageHeader('Dashboard', `Overview as at ${fmtDate(d.asAt)}`,
-    `${can('members:read') ? `<button class="btn btn-outline-secondary" onclick="getFile('/admin/members/export.csv',this)">${icon('download', 'me-1')} Export members</button>` : ''}${can('applications:read') ? `<a class="btn btn-primary" href="#/app/applications">${icon('file-earmark-text', 'me-1')} Review applications</a>` : ''}`)
+    `${can('members:read') ? `<button class="btn btn-outline-secondary" ${on('click', 'getFile', '/admin/members/export.csv', EL)}>${icon('download', 'me-1')} Export members</button>` : ''}${can('applications:read') ? `<a class="btn btn-primary" href="#/app/applications">${icon('file-earmark-text', 'me-1')} Review applications</a>` : ''}`)
     // The server leaves out (null) figures this role may not see; only the rest are shown.
     + `<div class="row g-3 mb-4">${[
       statCard('Total members', s.totalMembers, `${s.lapsedOrSuspended} lapsed or suspended`, 'people', 'primary'),
@@ -121,7 +123,7 @@ async function dashboard() {
     <div class="row g-3">
       <div class="col-lg-7"><div class="card h-100"><div class="card-header bg-white d-flex"><h2 class="h6 mb-0 py-1">Onboarding pipeline</h2>${can('applications:read') ? '<a class="ms-auto small" href="#/app/applications">View all</a>' : ''}</div>
         ${d.pipeline.length ? `<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Applicant</th><th>Town</th><th>Stage</th><th>Submitted</th></tr></thead><tbody>
-        ${d.pipeline.map(a => `<tr class="${can('applications:read') ? 'clickable' : ''}" ${can('applications:read') ? `onclick="nav('app/applications/${esc(a.ref)}')"` : ''}><td class="fw-medium">${esc(a.businessName)}</td><td>${esc(a.town)}</td><td>${appBadge(a)}</td><td class="small text-body-secondary">${fmtDate(a.submittedAt)}</td></tr>`).join('')}</tbody></table></div>` : empty('No open applications.')}
+        ${d.pipeline.map(a => `<tr class="${can('applications:read') ? 'clickable' : ''}" ${can('applications:read') ? on('click', 'nav', `app/applications/${a.ref}`) : ''}><td class="fw-medium">${esc(a.businessName)}</td><td>${esc(a.town)}</td><td>${appBadge(a)}</td><td class="small text-body-secondary">${fmtDate(a.submittedAt)}</td></tr>`).join('')}</tbody></table></div>` : empty('No open applications.')}
       </div></div>
       <div class="col-lg-5"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Needs attention</h2></div>
         <div class="list-group list-group-flush">${attention.join('') || empty("You're all caught up.", 'check2-circle')}</div>
@@ -167,12 +169,12 @@ async function members(number) {
   const tab = MTABS.find(t => t[0] === MS.tab);
   const r = await adm(`/members${qs({ ...tab[2], q: MS.q, page: MS.page, pageSize: 25 })}`);
   return pageHeader('Members', 'Accredited lenders, their MoF authorization, accreditation and dues',
-    `<button class="btn btn-outline-secondary" onclick="getFile('/admin/members/export.csv',this)">${icon('download', 'me-1')} Export CSV</button><a class="btn btn-primary" href="#/apply" target="_blank">${icon('plus-lg', 'me-1')} New application</a>`)
+    `<button class="btn btn-outline-secondary" ${on('click', 'getFile', '/admin/members/export.csv', EL)}>${icon('download', 'me-1')} Export CSV</button><a class="btn btn-primary" href="#/apply" target="_blank">${icon('plus-lg', 'me-1')} New application</a>`)
     + searchBox(MS.q, 'setMQuery', 'Search by name, member number, town or TPIN')
     + pills(MTABS.map(([k, l]) => [k, l]), MS.tab, 'setMTab')
-    + tableCard(['Member', 'Member no.', 'Town', 'Tier', 'MoF', 'Accreditation', 'Dues', 'Status'], r.items.map((m, i) => `<tr class="clickable" onclick="nav('app/members/${esc(m.number)}')">
+    + tableCard(['Member', 'Member no.', 'Town', 'Tier', 'MoF', 'Accreditation', 'Dues', 'Status'], r.items.map((m, i) => `<tr class="clickable" ${on('click', 'nav', `app/members/${m.number}`)}>
       <td><div class="d-flex align-items-center gap-2">${avatar(m.name, i)}<div><div class="fw-medium">${esc(m.name)}</div><div class="small text-body-secondary">${esc(m.contactName)}</div></div></div></td>
-      <td class="small font-monospace">${esc(m.number)}</td><td>${esc(m.town)}</td><td>${tierBadge(esc(m.tier))}</td><td>${mofBadge(lower(m.mofStatus))}</td><td>${accredBadge(lower(m.accreditation))}</td>
+      <td class="small font-monospace">${esc(m.number)}</td><td>${esc(m.town)}</td><td>${tierBadge(m.tier)}</td><td>${mofBadge(lower(m.mofStatus))}</td><td>${accredBadge(lower(m.accreditation))}</td>
       <td>${m.duesDue ? '<span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">Due</span>' : '<span class="badge rounded-pill bg-success-subtle text-success-emphasis border border-success-subtle">Paid</span>'}</td><td>${statusBadge(lower(m.status))}</td></tr>`).join(''),
     MS.q ? 'No members match your search.' : 'No members match this filter.', pager(r, 'setMPage'));
 }
@@ -185,13 +187,13 @@ let CUR_MEMBER = null;
 
 async function memberDetail(number) {
   const m = CUR_MEMBER = await adm(`/members/${encodeURIComponent(number)}`);
-  const n = esc(m.number), nArg = jsArg(m.number), d = m.dues;
+  const n = esc(m.number), num = m.number, d = m.dues;
   const renewal = m.pendingRenewal && m.renewals.find(r => r.id === m.pendingRenewal.id);
   const actions = [
-    m.certificate ? `<button class="btn btn-outline-secondary" onclick="getFile('/admin/members/${n}/certificate.pdf',this)">${icon('award', 'me-1')} Certificate</button>` : '',
-    can('members:write') ? `<button class="btn btn-outline-secondary" onclick="editMember()">${icon('pencil', 'me-1')} Edit</button><button class="btn btn-outline-secondary" onclick="sendReminder(${nArg},this)">${icon('envelope', 'me-1')} Send reminder</button>` : '',
-    can('payments:record') && d.payable ? `<button class="btn btn-outline-secondary" onclick="recordDues(${nArg})">${icon('cash', 'me-1')} Record dues payment</button>` : '',
-    can('members:write') ? (m.status === 'ACTIVE' ? `<button class="btn btn-outline-danger" onclick="suspendMember(${nArg})">${icon('slash-circle', 'me-1')} Suspend</button>` : `<button class="btn btn-primary" onclick="reinstateMember(${nArg})">${icon('arrow-counterclockwise', 'me-1')} Reinstate</button>`) : '',
+    m.certificate ? `<button class="btn btn-outline-secondary" ${on('click', 'getFile', `/admin/members/${encodeURIComponent(num)}/certificate.pdf`, EL)}>${icon('award', 'me-1')} Certificate</button>` : '',
+    can('members:write') ? `<button class="btn btn-outline-secondary" ${on('click', 'editMember')}>${icon('pencil', 'me-1')} Edit</button><button class="btn btn-outline-secondary" ${on('click', 'sendReminder', num, EL)}>${icon('envelope', 'me-1')} Send reminder</button>` : '',
+    can('payments:record') && d.payable ? `<button class="btn btn-outline-secondary" ${on('click', 'recordDues', num)}>${icon('cash', 'me-1')} Record dues payment</button>` : '',
+    can('members:write') ? (m.status === 'ACTIVE' ? `<button class="btn btn-outline-danger" ${on('click', 'suspendMember', num)}>${icon('slash-circle', 'me-1')} Suspend</button>` : `<button class="btn btn-primary" ${on('click', 'reinstateMember', num)}>${icon('arrow-counterclockwise', 'me-1')} Reinstate</button>`) : '',
   ].join('');
   const duesBadgeHtml = d.overdue ? '<span class="badge rounded-pill bg-danger-subtle text-danger-emphasis border border-danger-subtle">Overdue</span>'
     : d.payable ? '<span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">Due</span>'
@@ -201,14 +203,14 @@ async function memberDetail(number) {
     + (m.status === 'LAPSED' ? note('warning', 'hourglass-bottom', `<b>Lapsed.</b> The paid period ended ${fmtDate(m.validUntil)}. Recording a dues payment restores the membership.`) : '')
     + `<div class="row g-3">
       <div class="col-lg-4"><div class="card"><div class="card-body p-4">
-        <div class="text-center mb-3">${avatar(m.name, 0, true)}<h2 class="h5 mt-3 mb-1">${esc(m.name)}</h2><div class="d-flex justify-content-center gap-1">${tierBadge(esc(m.tier))} ${statusBadge(lower(m.status))}</div></div>
+        <div class="text-center mb-3">${avatar(m.name, 0, true)}<h2 class="h5 mt-3 mb-1">${esc(m.name)}</h2><div class="d-flex justify-content-center gap-1">${tierBadge(m.tier)} ${statusBadge(lower(m.status))}</div></div>
         ${info('Contact', esc(m.contactName))}${info('Phone', esc(m.contactPhone))}${info('Email', esc(m.contactEmail))}${info('ZRA TPIN', esc(m.tpin))}${info('PACRA no.', esc(m.pacra || '—'))}${info('Address', esc(m.address || '—'))}${info('Joined', fmtDate(m.joinedAt))}
         ${info('Public listing', m.goodStanding ? '<span class="text-success-emphasis">Listed, passes verification</span>' : '<span class="text-danger-emphasis">Hidden, fails verification</span>')}
       </div></div>
-      <div class="card mt-3"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Portal users</h2>${can('members:write') ? `<button class="btn btn-sm btn-outline-primary" onclick="inviteUser(${nArg})">${icon('person-plus', 'me-1')} Invite</button>` : ''}</div>
+      <div class="card mt-3"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Portal users</h2>${can('members:write') ? `<button class="btn btn-sm btn-outline-primary" ${on('click', 'inviteUser', num)}>${icon('person-plus', 'me-1')} Invite</button>` : ''}</div>
         <div class="list-group list-group-flush">${m.users.map(u => listItem('person', u.active ? 'primary' : 'secondary', `${esc(u.name)}${u.active ? '' : ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Deactivated</span>'}`,
           `${esc(u.email)}${u.invitePending ? ' · invitation not yet accepted' : u.lastLoginAt ? ` · last signed in ${fmtDateTime(u.lastLoginAt)}` : ''}`,
-          can('members:write') ? `<button class="btn btn-sm ${u.active ? 'btn-outline-danger' : 'btn-outline-secondary'}" onclick="setPortalUser(${jsArg(m.number)},${jsArg(u.id)},${!u.active})">${u.active ? 'Deactivate' : 'Reactivate'}</button>` : '')).join('') || empty('No portal users yet.', 'person')}</div></div>
+          can('members:write') ? `<button class="btn btn-sm ${u.active ? 'btn-outline-danger' : 'btn-outline-secondary'}" ${on('click', 'setPortalUser', m.number, u.id, !u.active)}>${u.active ? 'Deactivate' : 'Reactivate'}</button>` : '')).join('') || empty('No portal users yet.', 'person')}</div></div>
       </div>
       <div class="col-lg-8">
         <div class="row g-3 mb-3">
@@ -218,11 +220,11 @@ async function memberDetail(number) {
         </div>
         ${renewal ? `<div class="card mb-3 border-warning-subtle"><div class="card-header bg-warning-subtle"><h2 class="h6 mb-0 py-1">${icon('file-earmark-arrow-up', 'me-1')}MoF renewal awaiting verification</h2></div><div class="card-body">
           <p class="small mb-3">Renewed authorization <b>${esc(renewal.mofRef)}</b> uploaded ${fmtDateTime(renewal.submittedAt)}. Check it against the Ministry of Finance register, then record its expiry date.</p>
-          <div class="d-flex flex-wrap gap-2">${renewal.document && can('documents:read') ? `<button class="btn btn-outline-secondary" onclick="viewDoc(${jsArg(renewal.document.id)},${jsArg(`MoF renewal · ${m.name}`)})">${icon('eye', 'me-1')} View document</button>` : ''}
-          ${can('renewals:verify') ? `<button class="btn btn-outline-danger" onclick="rejectRenewal(${jsArg(renewal.id)})">Reject</button><button class="btn btn-primary" onclick="verifyRenewal(${jsArg(renewal.id)},${jsArg(renewal.mofRef)})">${icon('check-lg', 'me-1')} Verify renewal</button>` : ''}</div></div></div>` : ''}
+          <div class="d-flex flex-wrap gap-2">${renewal.document && can('documents:read') ? `<button class="btn btn-outline-secondary" ${on('click', 'viewDoc', renewal.document.id, `MoF renewal · ${m.name}`)}>${icon('eye', 'me-1')} View document</button>` : ''}
+          ${can('renewals:verify') ? `<button class="btn btn-outline-danger" ${on('click', 'rejectRenewal', renewal.id)}>Reject</button><button class="btn btn-primary" ${on('click', 'verifyRenewal', renewal.id, renewal.mofRef)}>${icon('check-lg', 'me-1')} Verify renewal</button>` : ''}</div></div></div>` : ''}
         <div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Documents</h2></div><div class="list-group list-group-flush">
           ${m.documents.map(doc => listItem(doc.kind === 'DIRECTOR_NRC' ? 'person-vcard' : doc.kind === 'PROOF_OF_PAYMENT' ? 'receipt' : 'file-earmark-text', doc.superseded ? 'secondary' : 'info', `${DOC_KIND[doc.kind] || esc(doc.kind)}${doc.superseded ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Replaced</span>' : ''}`, `${esc(doc.filename)} · ${fmtDate(doc.createdAt)}`,
-            can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" onclick="viewDoc(${jsArg(doc.id)},${jsArg(`${DOC_KIND[doc.kind] || doc.kind} · ${m.name}`)})">${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents on file.', 'folder')}
+            can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'viewDoc', doc.id, `${DOC_KIND[doc.kind] || doc.kind} · ${m.name}`)}>${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents on file.', 'folder')}
         </div></div>
         <div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Payments</h2></div>
           ${m.payments.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0 small"><thead><tr><th>Reference</th><th>Date</th><th>Description</th><th>Method</th><th class="text-end">Amount</th><th>Status</th><th></th></tr></thead><tbody>${m.payments.map(p => paymentRow(p, { payer: false })).join('')}</tbody></table></div>` : `<div class="card-body">${empty('No payments yet.', 'credit-card')}</div>`}</div>
@@ -323,8 +325,8 @@ async function applications(ref) {
     + note('light border', 'info-circle', 'The Ministry of Finance authorization is verified <b>first</b>: one officer recommends and a second approves. Only then can the applicant pay, and accreditation is issued automatically on payment.')
     + searchBox(AS.q, 'setAQuery', 'Search by business name, reference or town')
     + pills(ASTAGES, AS.stage, 'setAStage')
-    + tableCard(['Reference', 'Applicant', 'Town', 'Tier', 'MoF reference', 'Stage', 'Submitted'], r.items.map(a => `<tr class="clickable" onclick="nav('app/applications/${esc(a.ref)}')">
-      <td class="small font-monospace">${esc(a.ref)}</td><td><div class="fw-medium">${esc(a.businessName)}</div>${a.recommendedBy ? `<div class="small text-body-secondary">Recommended by ${esc(a.recommendedBy)}</div>` : ''}</td><td>${esc(a.town)}</td><td>${tierBadge(esc(a.tier))}</td>
+    + tableCard(['Reference', 'Applicant', 'Town', 'Tier', 'MoF reference', 'Stage', 'Submitted'], r.items.map(a => `<tr class="clickable" ${on('click', 'nav', `app/applications/${a.ref}`)}>
+      <td class="small font-monospace">${esc(a.ref)}</td><td><div class="fw-medium">${esc(a.businessName)}</div>${a.recommendedBy ? `<div class="small text-body-secondary">Recommended by ${esc(a.recommendedBy)}</div>` : ''}</td><td>${esc(a.town)}</td><td>${tierBadge(a.tier)}</td>
       <td class="small">${esc(a.mofRef || '—')}</td><td>${appBadge(a)}</td><td class="small text-body-secondary">${fmtDate(a.submittedAt)}</td></tr>`).join(''), 'No applications here.', pager(r, 'setAPage'));
 }
 
@@ -335,7 +337,7 @@ function checksCard(a) {
   return `<div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Automated checks</h2></div><div class="list-group list-group-flush">
     ${row(c.tpinValid, c.tpinValid ? 'TPIN format valid' : 'TPIN is not valid', `${esc(a.business.tpin)} · ZRA register lookup is not connected yet; confirm manually`, 'danger')}
     ${row(!c.duplicates.length, c.duplicates.length ? 'Possible duplicate' : 'No duplicates found', c.duplicates.length
-      ? c.duplicates.map(d => `Same ${esc(d.matches.join(', '))} as <a href="#/app/${d.type === 'member' ? 'members' : 'applications'}/${esc(d.ref)}">${esc(d.name)}</a> (${d.type} ${esc(d.ref)}, ${esc(lower(d.status).replace('_', ' '))})`).join('<br>')
+      ? c.duplicates.map(d => `Same ${esc(d.matches.join(', '))} as <a href="#/app/${d.type === 'member' ? 'members' : 'applications'}/${esc(d.ref)}">${esc(d.name)}</a> (${esc(d.type)} ${esc(d.ref)}, ${esc(lower(d.status).replace('_', ' '))})`).join('<br>')
       : 'Checked against all members and open applications by TPIN, PACRA no., name, email and phone', 'danger')}
     ${row(!c.missingDocuments.length, c.missingDocuments.length ? 'Documents incomplete' : 'All documents received', c.missingDocuments.length ? `Missing: ${c.missingDocuments.map(k => DOC_KIND[k]).join(', ')}` : 'MoF authorization, PACRA certificate and director NRC')}
   </div></div>`;
@@ -346,37 +348,37 @@ function docsCard(a) {
   return `<div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Documents</h2></div><div class="list-group list-group-flush">
     ${docs.map(d => listItem(d.kind === 'DIRECTOR_NRC' ? 'person-vcard' : d.kind === 'PROOF_OF_PAYMENT' ? 'receipt' : 'file-earmark-text', d.superseded ? 'secondary' : 'info',
       `${DOC_KIND[d.kind]}${d.superseded ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Replaced</span>' : ''}`, `${esc(d.filename)}${detail[d.kind] && !d.superseded ? ` · ${detail[d.kind]}` : ''} · ${fmtDate(d.uploadedAt)}`,
-      can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" onclick="viewDoc(${jsArg(d.id)},${jsArg(`${DOC_KIND[d.kind]} · ${a.business.name}`)})">${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents uploaded.', 'folder')}
+      can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'viewDoc', d.id, `${DOC_KIND[d.kind]} · ${a.business.name}`)}>${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents uploaded.', 'folder')}
   </div></div>`;
 }
 function decision(a) {
-  const rec = a.recommendation, ref = esc(a.ref), refArg = jsArg(a.ref), myId = getSession()?.userId;
-  const reject = can('applications:approve') ? `<button class="btn btn-outline-danger" onclick="rejectApp(${refArg})">Reject application</button>` : '';
+  const rec = a.recommendation, ref = esc(a.ref), refArg = a.ref, myId = getSession()?.userId;
+  const reject = can('applications:approve') ? `<button class="btn btn-outline-danger" ${on('click', 'rejectApp', refArg)}>Reject application</button>` : '';
   if (a.stage === 'DETAILS') return (a.returnNote ? note('danger', 'arrow-return-left', `Returned to applicant: ${esc(a.returnNote)}`) : '')
     + note('warning', 'hourglass', `The applicant has not yet uploaded their MoF authorization. They can do so from the tracking link in their confirmation email (reference <b>${ref}</b>).`)
     + `<div class="d-flex flex-wrap gap-2">${reject}</div>`;
   if (a.stage === 'MOF_REVIEW' && !rec) {
     if (!can('applications:recommend')) return note('info', 'hourglass-split', 'Awaiting review and a recommendation from a Membership Officer.') + `<div class="d-flex flex-wrap gap-2">${reject}</div>`;
     return note('info', 'search', '<b>Step 1 of 2 (maker).</b> Check the documents and the Ministry of Finance register, then recommend approval. A second officer must approve.')
-      + `<div class="d-flex flex-wrap gap-2">${reject}${can('applications:return') ? `<button class="btn btn-outline-danger" onclick="returnApp(${refArg})">Return to applicant</button>` : ''}<button class="btn btn-primary" onclick="recommendApp(${refArg})">${icon('person-check', 'me-1')} Recommend approval</button></div>`;
+      + `<div class="d-flex flex-wrap gap-2">${reject}${can('applications:return') ? `<button class="btn btn-outline-danger" ${on('click', 'returnApp', refArg)}>Return to applicant</button>` : ''}<button class="btn btn-primary" ${on('click', 'recommendApp', refArg)}>${icon('person-check', 'me-1')} Recommend approval</button></div>`;
   }
   if (a.stage === 'MOF_REVIEW') {
     const by = note('light border', 'person-check', `Recommended by <b>${esc(rec.by)}</b>${rec.title ? ` (${esc(rec.title)})` : ''} · ${fmtDateTime(rec.at)}${rec.note ? `<div class="mt-1 fst-italic">“${esc(rec.note)}”</div>` : ''}${a.mofExpiry ? `<div class="mt-1">MoF authorization valid until ${fmtDate(a.mofExpiry)}</div>` : ''}`);
     if (rec.userId === myId) return by + note('warning', 'shield-lock', '<b>Maker-checker:</b> you made this recommendation, so a different officer (the Secretariat Admin) must approve it.');
     if (!can('applications:approve')) return by + note('info', 'hourglass-split', 'Awaiting approval by the Secretariat Admin.');
     return by + note('info', 'clipboard-check', '<b>Step 2 of 2 (checker).</b> Review the recommendation, the documents and the automated checks, then approve or decline.')
-      + `<div class="d-flex flex-wrap gap-2">${reject}<button class="btn btn-outline-danger" onclick="declineRec(${refArg})">Decline recommendation</button><button class="btn btn-primary" onclick="approveApp(${refArg})">${icon('check-lg', 'me-1')} Approve</button></div>`;
+      + `<div class="d-flex flex-wrap gap-2">${reject}<button class="btn btn-outline-danger" ${on('click', 'declineRec', refArg)}>Decline recommendation</button><button class="btn btn-primary" ${on('click', 'approveApp', refArg)}>${icon('check-lg', 'me-1')} Approve</button></div>`;
   }
   if (a.stage === 'PAYMENT_PENDING') {
     const pending = a.payments.find(p => p.status === 'PENDING');
     if (pending?.method === 'BANK_TRANSFER' && pending.hasProof) return note('info', 'bank', `The applicant paid ${K(pending.amount)} by bank transfer (ref ${esc(pending.bankRef)}) and uploaded proof of payment. Confirming it issues the accreditation certificate automatically.`)
-      + (can('payments:confirm') ? `<button class="btn btn-primary" onclick="reviewPayment(${jsArg(pending.ref)})">${icon('file-earmark-check', 'me-1')} Review proof of payment</button>` : note('light border', 'info-circle', 'MLAZ Finance will confirm the transfer.'));
+      + (can('payments:confirm') ? `<button class="btn btn-primary" ${on('click', 'reviewPayment', pending.ref)}>${icon('file-earmark-check', 'me-1')} Review proof of payment</button>` : note('light border', 'info-circle', 'MLAZ Finance will confirm the transfer.'));
     return note('warning', 'credit-card', `Approved. Awaiting ${K(a.fees.total)} from the applicant (joining fee ${K(a.fees.joiningFee)} + ${esc(a.business.tier)} dues ${K(a.fees.annualDues)}). The accreditation certificate is issued automatically as soon as payment is received.${pending ? `<div class="mt-1">Payment ${esc(pending.ref)} by ${esc(pending.methodLabel)} is in progress.</div>` : ''}`)
-      + `<div class="d-flex flex-wrap gap-2">${reject}${can('payments:record') ? `<button class="btn btn-outline-primary" onclick="recordAppPayment(${refArg})">Record offline payment</button>` : ''}</div>`;
+      + `<div class="d-flex flex-wrap gap-2">${reject}${can('payments:record') ? `<button class="btn btn-outline-primary" ${on('click', 'recordAppPayment', refArg)}>Record offline payment</button>` : ''}</div>`;
   }
   if (a.stage === 'REJECTED') return note('danger', 'x-octagon', `<b>Not approved.</b> ${esc(a.rejectionReason || '')}`);
   return note('success', 'award', `Accredited as member <b>${esc(a.memberNumber)}</b>. The certificate was generated automatically on payment.`)
-    + `<div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-secondary" onclick="getFile('/admin/members/${esc(a.memberNumber)}/certificate.pdf',this)">${icon('award', 'me-1')} Certificate</button><a class="btn btn-primary" href="#/app/members/${esc(a.memberNumber)}">Open member record</a></div>`;
+    + `<div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-secondary" ${on('click', 'getFile', `/admin/members/${encodeURIComponent(a.memberNumber)}/certificate.pdf`, EL)}>${icon('award', 'me-1')} Certificate</button><a class="btn btn-primary" href="#/app/members/${esc(a.memberNumber)}">Open member record</a></div>`;
 }
 async function appDetail(ref) {
   const a = CUR_APP = await adm(`/applications/${encodeURIComponent(ref)}`);
@@ -392,7 +394,7 @@ async function appDetail(ref) {
         ${checksCard(a)}
         <div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Applicant details</h2></div><div class="card-body">
           ${info('Business name', esc(a.business.name))}${info('PACRA no.', esc(a.business.pacra))}${info('ZRA TPIN', esc(a.business.tpin))}${info('Location', esc([a.business.town, a.business.province].join(', ')))}${info('Address', esc(a.business.address || '—'))}
-          ${info('Contact', esc(`${a.contact.name}, ${a.contact.position}`))}${info('Director', esc(`${a.director.name} · ${a.director.nrc}`))}${info('Phone', esc(a.contact.phone))}${info('Email', esc(a.contact.email))}${info('Tier', tierBadge(esc(a.business.tier)))}${info('Fees on approval', K(a.fees.total))}
+          ${info('Contact', esc(`${a.contact.name}, ${a.contact.position}`))}${info('Director', esc(`${a.director.name} · ${a.director.nrc}`))}${info('Phone', esc(a.contact.phone))}${info('Email', esc(a.contact.email))}${info('Tier', tierBadge(a.business.tier))}${info('Fees on approval', K(a.fees.total))}
         </div></div>
       </div>
     </div>
@@ -469,7 +471,7 @@ async function certificates() {
     + tableCard(['Member', 'Certificate no.', 'Issued', 'Valid until', 'Status', '#'], certs.map(c => `<tr><td><a class="fw-medium" href="#/app/members/${esc(c.member.number)}">${esc(c.member.name)}</a><div class="small text-body-secondary">${esc(c.member.number)}</div></td>
       <td class="small font-monospace">${esc(c.serial)}</td><td class="small">${fmtDate(c.issuedAt)}</td><td class="small">${fmtDate(c.validUntil)}</td>
       <td>${c.member.goodStanding ? accredBadge('issued') : accredBadge(lower(c.member.accreditation))}</td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-secondary" title="Download certificate" onclick="getFile('/admin/members/${esc(c.member.number)}/certificate.pdf',this)">${icon('download')}</button></td></tr>`).join(''), 'No certificates issued yet.');
+      <td class="text-end"><button class="btn btn-sm btn-outline-secondary" title="Download certificate" ${on('click', 'getFile', `/admin/members/${encodeURIComponent(c.member.number)}/certificate.pdf`, EL)}>${icon('download')}</button></td></tr>`).join(''), 'No certificates issued yet.');
 }
 
 /* ================= PAYMENTS & EXPENSES ================= */
@@ -493,13 +495,13 @@ async function payments() {
       <div class="d-flex justify-content-between py-2"><span>Joining fee</span><b>${K(s.feeSchedule.joiningFee)} once</b></div>
       <div class="alert alert-light border mt-3 mb-0">${icon('phone', 'me-1 text-primary')} Members pay by MTN, Airtel or Zamtel mobile money, iZyane Pay QR, card or bank transfer. Receipts are issued automatically.</div>
     </div></div>`;
-  const expensesCard = canExp ? `<div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2>${can('expenses:write') ? `<button class="btn btn-sm btn-primary" onclick="addExpense()">${icon('plus-lg', 'me-1')} Add expense</button>` : ''}</div>
+  const expensesCard = canExp ? `<div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2>${can('expenses:write') ? `<button class="btn btn-sm btn-primary" ${on('click', 'addExpense')}>${icon('plus-lg', 'me-1')} Add expense</button>` : ''}</div>
       <div class="table-responsive" style="max-height:520px"><table class="table table-sm table-hover align-middle small mb-0"><thead class="sticky-top"><tr><th>Expense</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
       ${EXPENSES.map(x => `<tr><td><div class="fw-medium">${esc(x.description)}</div><div class="text-body-secondary">${esc(x.category)} · ${esc(x.payee)} · ${fmtDate(x.date)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event.name)}</div>` : ''}</td>
-        <td class="text-end fw-medium text-nowrap">${K(x.amount)}</td><td class="text-end"><button class="btn btn-sm btn-light" title="Details" onclick="viewExpense(${jsArg(x.ref)})">${icon('three-dots')}</button></td></tr>`).join('') || `<tr><td colspan="3">${empty('No expenses recorded.', 'wallet2')}</td></tr>`}
+        <td class="text-end fw-medium text-nowrap">${K(x.amount)}</td><td class="text-end"><button class="btn btn-sm btn-light" title="Details" ${on('click', 'viewExpense', x.ref)}>${icon('three-dots')}</button></td></tr>`).join('') || `<tr><td colspan="3">${empty('No expenses recorded.', 'wallet2')}</td></tr>`}
       </tbody>${EXPENSES.length ? `<tfoot><tr class="fw-semibold"><td>Total</td><td class="text-end text-nowrap">${K(exp.total)}</td><td></td></tr></tfoot>` : ''}</table></div></div>` : '';
   return pageHeader('Payments & dues', 'Joining fees, annual dues and event tickets across mobile money, card and bank',
-    `${can('payments:confirm') ? `<button class="btn btn-outline-secondary" onclick="reconcile(this)">${icon('arrow-repeat', 'me-1')} Reconcile</button>` : ''}${can('comms:write') ? `<button class="btn btn-primary" onclick="broadcast('DUES_DUE')">${icon('envelope', 'me-1')} Send dues reminders</button>` : ''}`)
+    `${can('payments:confirm') ? `<button class="btn btn-outline-secondary" ${on('click', 'reconcile', EL)}>${icon('arrow-repeat', 'me-1')} Reconcile</button>` : ''}${can('comms:write') ? `<button class="btn btn-primary" ${on('click', 'broadcast', 'DUES_DUE')}>${icon('envelope', 'me-1')} Send dues reminders</button>` : ''}`)
     + `<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xxl-5 g-3 mb-4">
       <div class="col">${statCard('Collected (YTD)', KM(s.collectedYtd), 'successful payments this year', 'cash-stack', 'primary')}</div>
       <div class="col">${statCard('Collected today', K(s.collectedToday), `${s.transactionsToday} transaction${s.transactionsToday === 1 ? '' : 's'}`, 'graph-up-arrow', 'success')}</div>
@@ -571,7 +573,7 @@ async function addExpense() {
       <div class="col-12"><label class="form-label small fw-medium">Paid to</label><input class="form-control" name="payee" required placeholder="Supplier or person"><div class="invalid-feedback">Required.</div></div>
       <div class="col-md-6"><label class="form-label small fw-medium">Amount (K)</label><input class="form-control" type="number" name="amount" min="0.01" step="0.01" required><div class="invalid-feedback">Enter an amount above zero.</div></div>
       <div class="col-md-6"><label class="form-label small fw-medium">Payment method</label><select class="form-select" name="method">${opts(meta.methods)}</select></div>
-      <div class="col-12"><label class="form-label small fw-medium">Event <span class="text-body-secondary fw-normal">(optional)</span></label><select class="form-select" name="eventId"><option value="">Not linked to an event</option>${evs.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}</select></div>
+      <div class="col-12"><label class="form-label small fw-medium">Event <span class="text-body-secondary fw-normal">(optional)</span></label><select class="form-select" name="eventId"><option value="">Not linked to an event</option>${evs.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')}</select></div>
     </div>`,
     onSubmit: async v => { await adm('/expenses', { method: 'POST', body: { ...v, amount: Number(v.amount), eventId: v.eventId || null } }); done('Expense added'); },
   });
@@ -599,10 +601,10 @@ async function communications() {
   const write = can('comms:write');
   const groups = res.reduce((g, r) => ((g[r.category] ||= []).push(r), g), {});
   return pageHeader('Communications', 'Announcements, email and SMS broadcasts, and the member resource library',
-    write ? `<button class="btn btn-outline-secondary" onclick="newAnnouncement()">${icon('plus-lg', 'me-1')} Announcement</button><button class="btn btn-primary" onclick="broadcast()">${icon('megaphone', 'me-1')} New broadcast</button>` : '')
+    write ? `<button class="btn btn-outline-secondary" ${on('click', 'newAnnouncement')}>${icon('plus-lg', 'me-1')} Announcement</button><button class="btn btn-primary" ${on('click', 'broadcast')}>${icon('megaphone', 'me-1')} New broadcast</button>` : '')
     + `<div class="row g-3"><div class="col-lg-8">
       <div class="card mb-3"><div class="card-header bg-white d-flex"><h2 class="h6 mb-0 py-1">Announcements</h2><span class="ms-auto small text-body-secondary">Shown on the website and member portal</span></div><div class="list-group list-group-flush">
-        ${ann.map(a => listItem('megaphone', 'primary', esc(a.title), `${fmtDate(a.publishedAt)} · ${esc(a.body)}`, `<span class="badge bg-secondary-subtle text-secondary-emphasis">${esc(a.tag)}</span>${write ? `<button class="btn btn-sm btn-light" title="Remove" onclick="removeAnnouncement(${jsArg(a.id)})">${icon('trash')}</button>` : ''}`)).join('') || empty('No announcements.', 'megaphone')}
+        ${ann.map(a => listItem('megaphone', 'primary', esc(a.title), `${fmtDate(a.publishedAt)} · ${esc(a.body)}`, `<span class="badge bg-secondary-subtle text-secondary-emphasis">${esc(a.tag)}</span>${write ? `<button class="btn btn-sm btn-light" title="Remove" ${on('click', 'removeAnnouncement', a.id)}>${icon('trash')}</button>` : ''}`)).join('') || empty('No announcements.', 'megaphone')}
       </div></div>
       <div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Sent broadcasts</h2></div><div class="list-group list-group-flush">
         ${bcs.map(b => listItem('send', 'info', esc(b.subject), `${fmtDateTime(b.createdAt)} · ${esc(b.audience)} · ${esc(b.channels.join(', '))} · ${b.recipientCount} recipient${b.recipientCount === 1 ? '' : 's'} · by ${esc(b.createdBy)}`,
@@ -612,10 +614,10 @@ async function communications() {
       <div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Channels</h2></div><div class="list-group list-group-flush">
         ${listItem('envelope', 'info', 'Email', 'Member contact emails')}${listItem('chat-dots', 'warning', 'SMS', 'Sender ID: MLAZ')}${listItem('window', 'primary', 'Portal & website', 'Announcement feed')}
       </div></div>
-      <div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Resource library</h2>${write ? `<button class="btn btn-sm btn-outline-primary" onclick="addResource()">${icon('upload', 'me-1')} Upload</button>` : ''}</div><div class="list-group list-group-flush">
+      <div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Resource library</h2>${write ? `<button class="btn btn-sm btn-outline-primary" ${on('click', 'addResource')}>${icon('upload', 'me-1')} Upload</button>` : ''}</div><div class="list-group list-group-flush">
         ${Object.entries(groups).map(([cat, items]) => `<div class="list-group-item bg-body-tertiary small fw-semibold">${icon('folder2', 'me-1')}${esc(cat)} <span class="text-body-secondary fw-normal">(${items.length})</span></div>`
           + items.map(r => `<div class="list-group-item d-flex align-items-center gap-2 small"><div class="flex-grow-1 min-w-0"><div class="fw-medium text-truncate">${esc(r.title)}</div><div class="text-body-secondary">${esc(r.filename)} · ${fmtDate(r.createdAt)}</div></div>
-            <button class="btn btn-sm btn-light" title="Download" onclick="getFile(${jsArg(`/admin/resources/${r.id}/download`)},this)">${icon('download')}</button>${write ? `<button class="btn btn-sm btn-light" title="Remove" onclick="removeResource(${jsArg(r.id)})">${icon('trash')}</button>` : ''}</div>`).join('')).join('') || empty('No documents in the library yet.', 'folder2')}
+            <button class="btn btn-sm btn-light" title="Download" ${on('click', 'getFile', `/admin/resources/${encodeURIComponent(r.id)}/download`, EL)}>${icon('download')}</button>${write ? `<button class="btn btn-sm btn-light" title="Remove" ${on('click', 'removeResource', r.id)}>${icon('trash')}</button>` : ''}</div>`).join('')).join('') || empty('No documents in the library yet.', 'folder2')}
       </div></div>
     </div></div>`;
 }
@@ -678,14 +680,14 @@ const toggleEventsPast = () => { EV_PAST = !EV_PAST; rerender(); };
 async function events() {
   const list = await adm(`/events?past=${EV_PAST}`);
   return pageHeader('Events', 'AGMs, trainings and webinars for members',
-    `<button class="btn btn-outline-secondary" onclick="toggleEventsPast()">${EV_PAST ? 'Upcoming only' : 'Include past events'}</button>${can('events:write') ? `<button class="btn btn-primary" onclick="newEvent()">${icon('plus-lg', 'me-1')} New event</button>` : ''}`)
+    `<button class="btn btn-outline-secondary" ${on('click', 'toggleEventsPast')}>${EV_PAST ? 'Upcoming only' : 'Include past events'}</button>${can('events:write') ? `<button class="btn btn-primary" ${on('click', 'newEvent')}>${icon('plus-lg', 'me-1')} New event</button>` : ''}`)
     + `<div class="row g-3">${list.map(e => { const pct = Math.min(100, Math.round(e.registered / e.capacity * 100)); return `<div class="col-md-6 col-xl-4"><div class="card h-100 ${e.status === 'CANCELLED' ? 'opacity-75' : ''}"><div class="card-body d-flex flex-column">
       <div class="d-flex justify-content-between mb-2"><span class="badge bg-info-subtle text-info-emphasis">${esc(EVENT_TYPE[e.type] || e.type)}</span>${e.status === 'CANCELLED' ? '<span class="badge bg-danger-subtle text-danger-emphasis">Cancelled</span>' : `<span class="small text-body-secondary">${fmtDate(e.date)}</span>`}</div>
       <h2 class="h6 fw-semibold mb-1">${esc(e.name)}</h2><div class="small text-body-secondary mb-2">${icon('geo-alt', 'me-1')}${esc(e.venue)}</div>
       <div class="d-flex justify-content-between small mb-3"><span class="fw-semibold">${icon('ticket-perforated', 'me-1 text-primary')}${e.price ? `${K(e.price)} per ticket` : 'Free'}</span>${e.price ? `<span class="text-body-secondary">${K(e.revenue)} collected</span>` : ''}</div>
       <div class="mt-auto"><div class="d-flex justify-content-between small mb-1"><span>${e.registered} / ${e.capacity} registered</span><span class="text-body-secondary">${pct}%</span></div>
       <div class="progress mb-3" style="height:6px"><div class="progress-bar" style="width:${pct}%"></div></div>
-      <button class="btn btn-outline-secondary btn-sm w-100" onclick="manageEvent(${jsArg(e.id)})">Manage</button></div>
+      <button class="btn btn-outline-secondary btn-sm w-100" ${on('click', 'manageEvent', e.id)}>Manage</button></div>
     </div></div></div>`; }).join('') || `<div class="col-12">${empty(EV_PAST ? 'No events yet.' : 'No upcoming events.', 'calendar')}</div>`}</div>`;
 }
 function newEvent() {
@@ -761,10 +763,10 @@ async function reports() {
   const list = await adm('/reports');
   return pageHeader('Reports', 'Standard reports with export to Excel (CSV) and PDF')
     + `<div class="row g-3">${list.map(rp => `<div class="col-md-6 col-xl-4"><div class="card h-100"><div class="card-body d-flex flex-column">
-      <div class="d-flex gap-3 mb-2"><span class="icon-circle bg-primary-subtle text-primary-emphasis">${icon(rp.icon)}</span><div><h2 class="h6 fw-semibold mb-1">${esc(rp.title)}</h2><div class="small text-body-secondary">${esc(rp.description)}</div></div></div>
-      <div class="d-flex gap-2 mt-auto pt-3"><button class="btn btn-sm btn-outline-secondary flex-grow-1" onclick="viewReport(${jsArg(rp.key)},this)">${icon('eye', 'me-1')} View</button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="getFile('/admin/reports/${rp.key}?format=csv',this)" title="Opens in Excel">${icon('file-earmark-spreadsheet', 'me-1')} Excel</button>
-        <button class="btn btn-sm btn-outline-secondary" onclick="reportPdf(${jsArg(rp.key)},this)">${icon('file-earmark-pdf', 'me-1')} PDF</button></div>
+      <div class="d-flex gap-3 mb-2"><span class="icon-circle bg-primary-subtle text-primary-emphasis">${icon(esc(rp.icon))}</span><div><h2 class="h6 fw-semibold mb-1">${esc(rp.title)}</h2><div class="small text-body-secondary">${esc(rp.description)}</div></div></div>
+      <div class="d-flex gap-2 mt-auto pt-3"><button class="btn btn-sm btn-outline-secondary flex-grow-1" ${on('click', 'viewReport', rp.key, EL)}>${icon('eye', 'me-1')} View</button>
+        <button class="btn btn-sm btn-outline-secondary" ${on('click', 'getFile', `/admin/reports/${encodeURIComponent(rp.key)}?format=csv`, EL)} title="Opens in Excel">${icon('file-earmark-spreadsheet', 'me-1')} Excel</button>
+        <button class="btn btn-sm btn-outline-secondary" ${on('click', 'reportPdf', rp.key, EL)}>${icon('file-earmark-pdf', 'me-1')} PDF</button></div>
     </div></div></div>`).join('')}</div>`;
 }
 async function viewReport(key, btn) {
@@ -772,7 +774,7 @@ async function viewReport(key, btn) {
   try {
     const r = await adm(`/reports/${key}`);
     modal({ title: esc(r.title), size: 'xl', body: `<div class="small text-body-secondary mb-2">${r.rows.length} rows · generated ${fmtDateTime(r.generatedAt)}</div>${reportTable(r)}`,
-      footer: `<button class="btn btn-light me-auto" data-bs-dismiss="modal">Close</button><button class="btn btn-outline-secondary" onclick="getFile(${jsArg(`/admin/reports/${encodeURIComponent(key)}?format=csv`)},this)">${icon('file-earmark-spreadsheet', 'me-1')} Excel</button><button class="btn btn-primary" onclick="reportPdf(${jsArg(key)},this)">${icon('file-earmark-pdf', 'me-1')} PDF</button>` });
+      footer: `<button class="btn btn-light me-auto" data-bs-dismiss="modal">Close</button><button class="btn btn-outline-secondary" ${on('click', 'getFile', `/admin/reports/${encodeURIComponent(key)}?format=csv`, EL)}>${icon('file-earmark-spreadsheet', 'me-1')} Excel</button><button class="btn btn-primary" ${on('click', 'reportPdf', key, EL)}>${icon('file-earmark-pdf', 'me-1')} PDF</button>` });
   } catch (e) { fail(e); } finally { busy(btn, false); }
 }
 async function reportPdf(key, btn) {
@@ -791,7 +793,7 @@ async function directory() {
   const r = await adm(`/members${qs({ page: DIR_PAGE, pageSize: 50 })}`);
   return pageHeader('Public directory', 'What borrowers and regulators see when they verify a member', `<a class="btn btn-outline-secondary" href="#/directory" target="_blank">${icon('box-arrow-up-right', 'me-1')} Open public directory</a>`)
     + note('light border', 'info-circle', 'Only <b>active, accredited</b> members with a valid MoF authorization and paid dues are listed publicly and pass verification. The listing updates automatically.')
-    + tableCard(['Member', 'Member no.', 'Town', 'Tier', 'Public listing'], r.items.map(m => `<tr class="clickable" onclick="nav('app/members/${esc(m.number)}')"><td class="fw-medium">${esc(m.name)}</td><td class="small font-monospace">${esc(m.number)}</td><td>${esc(m.town)}</td><td>${tierBadge(esc(m.tier))}</td>
+    + tableCard(['Member', 'Member no.', 'Town', 'Tier', 'Public listing'], r.items.map(m => `<tr class="clickable" ${on('click', 'nav', `app/members/${m.number}`)}><td class="fw-medium">${esc(m.name)}</td><td class="small font-monospace">${esc(m.number)}</td><td>${esc(m.town)}</td><td>${tierBadge(m.tier)}</td>
       <td>${m.goodStanding ? '<span class="badge bg-success-subtle text-success-emphasis">Listed</span>' : '<span class="badge bg-secondary-subtle text-secondary-emphasis">Hidden</span>'}</td></tr>`).join(''), 'No members yet.', pager(r, 'setDirPage'));
 }
 
@@ -802,16 +804,16 @@ async function settings() {
   SETTINGS = st; STAFF_LIST = staff;
   const write = can('settings:write');
   const row = (k, v, action = '') => `<div class="d-flex justify-content-between align-items-center gap-2 py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="d-flex align-items-center gap-2"><b>${v}</b>${action}</span></div>`;
-  const editBtn = (fn, title) => write ? `<button class="btn btn-sm btn-light" title="${title}" onclick="${fn}">${icon('pencil')}</button>` : '';
+  const editBtn = (handler, title) => write ? `<button class="btn btn-sm btn-light" title="${title}" ${on('click', ...handler)}>${icon('pencil')}</button>` : '';
   const b = st.bankAccount, integ = st.integrations;
   const live = (ok, label) => `<span class="badge ${ok ? 'bg-success-subtle text-success-emphasis' : 'bg-warning-subtle text-warning-emphasis'}">${label}</span>`;
   return pageHeader('Settings', 'Your account, tiers, fees, bank account, staff accounts and integrations')
     + `<div class="row g-3">
       <div class="col-lg-6">${accountCard()}</div>
-      <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Membership tiers & fees</h2>${editBtn('editFees()', 'Edit fees')}</div><div class="card-body">
-        ${st.tiers.map(t => row(`${esc(t.name)}: annual dues${t.active ? '' : ' (inactive)'}`, K(t.annualDues), editBtn(`editTier(${jsArg(t.name)})`, `Edit ${esc(t.name)}`))).join('')}
+      <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Membership tiers & fees</h2>${editBtn(['editFees'], 'Edit fees')}</div><div class="card-body">
+        ${st.tiers.map(t => row(`${esc(t.name)}: annual dues${t.active ? '' : ' (inactive)'}`, K(t.annualDues), editBtn(['editTier', t.name], `Edit ${esc(t.name)}`))).join('')}
         ${row('Joining fee', K(st.joiningFee))}${row('Dues payable from', `${st.renewalWindowDays} days before expiry`)}${row('Renewal cycle', 'Annual, from the accreditation date')}</div></div></div>
-      <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Bank account for transfers</h2>${editBtn('editBank()', 'Edit bank account')}</div><div class="card-body">
+      <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Bank account for transfers</h2>${editBtn(['editBank'], 'Edit bank account')}</div><div class="card-body">
         ${row('Bank', esc(b.bank))}${row('Account name', esc(b.name))}${row('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${row('Branch', esc(b.branch))}
         <div class="small text-body-secondary mt-3">Shown to members and applicants who choose to pay by bank transfer.</div></div></div></div>
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Roles</h2></div><div class="list-group list-group-flush">
@@ -825,18 +827,18 @@ async function settings() {
         ${listItem('search', 'info', 'Credit bureau', `Driver: ${esc(integ.creditBureau)}`, live(integ.creditBureau !== 'simulated', integ.creditBureau === 'simulated' ? 'Simulated' : 'Live'))}
         ${listItem('building', 'info', 'ZRA TPIN lookup', 'Format check only', live(false, 'Not connected'))}
       </div></div></div>
-      ${manage ? `<div class="col-12"><div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Staff accounts</h2><button class="btn btn-sm btn-primary" onclick="inviteStaff()">${icon('person-plus', 'me-1')} Add staff</button></div>
+      ${manage ? `<div class="col-12"><div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Staff accounts</h2><button class="btn btn-sm btn-primary" ${on('click', 'inviteStaff')}>${icon('person-plus', 'me-1')} Add staff</button></div>
         <div class="table-responsive"><table class="table align-middle mb-0 small"><thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Two-factor</th><th>Last sign-in</th><th></th></tr></thead><tbody>
         ${staff.map(u => `<tr class="${u.active ? '' : 'text-body-secondary'}"><td class="fw-medium">${esc(u.name)}${u.title && u.title !== u.roleLabel ? `<div class="text-body-secondary fw-normal">${esc(u.title)}</div>` : ''}</td><td>${esc(u.email)}</td><td>${esc(u.roleLabel)}</td>
           <td>${!u.active ? '<span class="badge bg-secondary-subtle text-secondary-emphasis">Deactivated</span>' : u.invitePending ? '<span class="badge bg-warning-subtle text-warning-emphasis">Invite pending</span>' : '<span class="badge bg-success-subtle text-success-emphasis">Active</span>'}</td>
           <td>${u.mfaEnabled ? `<span class="text-success-emphasis">${icon('shield-check', 'me-1')}On</span>` : '<span class="text-warning-emphasis">Off</span>'}</td>
           <td>${u.lastLoginAt ? fmtDateTime(u.lastLoginAt) : '—'}</td>
-          <td class="text-end text-nowrap">${u.invitePending && u.active ? `<button class="btn btn-sm btn-light" onclick="resendStaffInvite(${jsArg(u.id)},this)">Resend invite</button>` : ''}<button class="btn btn-sm btn-light" title="Edit" onclick="editStaff(${jsArg(u.id)})">${icon('pencil')}</button></td></tr>`).join('')}
+          <td class="text-end text-nowrap">${u.invitePending && u.active ? `<button class="btn btn-sm btn-light" ${on('click', 'resendStaffInvite', u.id, EL)}>Resend invite</button>` : ''}<button class="btn btn-sm btn-light" title="Edit" ${on('click', 'editStaff', u.id)}>${icon('pencil')}</button></td></tr>`).join('')}
         </tbody></table></div></div></div>
       <div class="col-12"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Message delivery problems</h2></div>
         ${failedMsgs.length ? `<div class="table-responsive"><table class="table align-middle mb-0 small"><thead><tr><th>When</th><th>Channel</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody>
           ${failedMsgs.map(n => `<tr><td>${fmtDateTime(n.createdAt)}</td><td>${esc(n.channel)}</td><td>${esc(n.to)}</td><td>${esc(n.subject || '—')}</td><td class="text-danger-emphasis">${esc(n.lastError || '')}</td>
-            <td class="text-end"><button class="btn btn-sm btn-light" onclick="retryMessage(${jsArg(n.id)},this)">Retry</button></td></tr>`).join('')}</tbody></table></div>`
+            <td class="text-end"><button class="btn btn-sm btn-light" ${on('click', 'retryMessage', n.id, EL)}>Retry</button></td></tr>`).join('')}</tbody></table></div>`
         : `<div class="card-body small text-body-secondary">${icon('check2-circle', 'me-1 text-success')}All emails and SMS were delivered.</div>`}</div></div>` : ''}
     </div>`;
 }
@@ -866,7 +868,7 @@ function editBank() {
     onSubmit: async v => { await adm('/settings/bank-account', { method: 'PUT', body: v }); done('Bank account saved'); },
   });
 }
-const roleOptions = sel => SETTINGS.roles.map(r => `<option value="${r.role}" ${r.role === sel ? 'selected' : ''}>${esc(r.label)}</option>`).join('');
+const roleOptions = sel => SETTINGS.roles.map(r => `<option value="${esc(r.role)}" ${r.role === sel ? 'selected' : ''}>${esc(r.label)}</option>`).join('');
 function inviteStaff() {
   asyncModal({
     title: 'Add staff member', confirmText: 'Send invitation',
@@ -914,7 +916,7 @@ export async function adminSearch(q) {
 
 export const ADMIN_PAGES = { dashboard, reports, members, applications, certificates, payments, communications, events, directory, settings };
 expose({
-  getFile, viewDoc, setMTab, setMQuery, setMPage, editMember, sendReminder, recordDues, suspendMember, reinstateMember, verifyRenewal, rejectRenewal, inviteUser,
+  runSearch, getFile, viewDoc, setMTab, setMQuery, setMPage, editMember, sendReminder, recordDues, suspendMember, reinstateMember, verifyRenewal, rejectRenewal, inviteUser,
   setAStage, setAQuery, setAPage, recommendApp, approveApp, declineRec, returnApp, rejectApp, recordAppPayment,
   setPTab, setPQuery, setPPage, reconcile, reviewPayment, addExpense, viewExpense,
   removeAnnouncement, newAnnouncement, broadcast, addResource, removeResource,

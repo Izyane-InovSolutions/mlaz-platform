@@ -1,6 +1,6 @@
 import {
   esc, K, fmtDate, icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast,
-  nav, after, expose, empty, modal, busy, rerender, NRC_ATTRS, digitsAttrs, jsArg,
+  nav, after, expose, empty, modal, busy, rerender, NRC_ATTRS, digitsAttrs, on, EL,
 } from './ui.js';
 import { ApiError, api, completeSignIn, download, forgetTrackToken, isTrackingToken, pub, publicConfig, saveTrackToken, signIn, trackToken } from './api.js';
 
@@ -32,8 +32,8 @@ export function publicLayout(inner, active) {
       <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#pubnav" aria-label="Menu"><span class="navbar-toggler-icon"></span></button>
       <div class="collapse navbar-collapse" id="pubnav">
         <ul class="navbar-nav me-auto">
-          <li class="nav-item"><a class="nav-link" href="javascript:void 0" onclick="goSection('about')">About</a></li>
-          <li class="nav-item"><a class="nav-link" href="javascript:void 0" onclick="goSection('membership')">Membership</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" role="button" ${on('click', 'goSection', 'about')}>About</a></li>
+          <li class="nav-item"><a class="nav-link" href="#" role="button" ${on('click', 'goSection', 'membership')}>Membership</a></li>
           ${link('#/verify', 'Verify a lender', 'verify')}
           ${link('#/directory', 'Directory', 'directory')}
           ${link('#/track', 'Track application', 'track')}
@@ -127,7 +127,7 @@ async function home() {
             <div class="card-body p-4 p-md-5">
               <div class="d-flex align-items-center gap-3 mb-2"><span class="feature-icon">${icon('shield-check')}</span><div><h2 class="h5 mb-0">Verify a lender</h2><div class="small text-body-secondary">Check before you borrow</div></div></div>
               <p class="small text-body-secondary mt-3">Confirm that a money lender is an accredited MLAZ member authorized by the Ministry of Finance.</p>
-              <form onsubmit="event.preventDefault();nav('verify/'+encodeURIComponent(this.q.value.trim()))">
+              <form ${on('submit', 'verifySearch', EL)}>
                 <div class="input-group input-group-lg">
                   <input name="q" class="form-control" placeholder="Member number or business name" minlength="3" required>
                   <button class="btn btn-primary" type="submit">Verify</button>
@@ -336,8 +336,8 @@ function renderWizard() {
   }
   box.innerHTML = `<div class="mb-4">${stepper(W_STEPS, W.step)}</div><div id="wizerr"></div><form id="wform" novalidate>${body}</form>
     <div class="d-flex justify-content-between mt-4 pt-3 border-top">
-      <button class="btn btn-light" ${W.step === 0 ? 'disabled' : ''} onclick="wizPrev()">${icon('arrow-left', 'me-1')} Back</button>
-      ${W.step < 3 ? `<button class="btn btn-primary" onclick="wizNext()">Continue ${icon('arrow-right', 'ms-1')}</button>` : '<button class="btn btn-primary" onclick="wizSubmit(this)">Submit application</button>'}
+      <button class="btn btn-light" ${W.step === 0 ? 'disabled' : ''} ${on('click', 'wizPrev')}>${icon('arrow-left', 'me-1')} Back</button>
+      ${W.step < 3 ? `<button class="btn btn-primary" ${on('click', 'wizNext')}>Continue ${icon('arrow-right', 'ms-1')}</button>` : `<button class="btn btn-primary" ${on('click', 'wizSubmit', EL)}>Submit application</button>`}
     </div>`;
 }
 const wizError = html => { document.getElementById('wizerr').innerHTML = html ? alertBox('danger', 'exclamation-circle', html) : ''; };
@@ -426,7 +426,7 @@ async function track(refParam, query) {
   }
   return `<section class="py-5 bg-body-tertiary min-vh-75"><div class="container" style="max-width:860px">
     <h1 class="h2 fw-bold mb-1">Track your application</h1><p class="text-body-secondary">Open the link in your confirmation email, or enter your reference, e.g. APP-2042.</p>
-    <form class="d-flex gap-2 mb-4" onsubmit="event.preventDefault();nav('track/'+encodeURIComponent(this.ref.value.trim().toUpperCase()))">
+    <form class="d-flex gap-2 mb-4" ${on('submit', 'trackSearch', EL)}>
       <input class="form-control form-control-lg" name="ref" placeholder="Application reference" value="${esc(ref)}" required>
       <button class="btn btn-primary btn-lg px-4">Track</button>
     </form>${result}</div></section>`;
@@ -437,27 +437,27 @@ const needLink = (ref, invalid) => `<div class="card border-0 shadow-sm"><div cl
   <div><h2 class="h5 mb-1">${invalid ? `We couldn’t open application ${esc(ref)}` : `Open your tracking link for ${esc(ref)}`}</h2>
   <p class="small text-body-secondary mb-0">${invalid ? 'The reference or link isn’t valid. Check the reference in your confirmation email.' : 'To keep applications private, they can only be opened from the link we emailed when you applied, or in the browser you applied from.'}
   Enter the email address on the application and we’ll send the link again.</p></div></div>
-  <form class="row g-2" novalidate onsubmit="event.preventDefault();trackResend(${jsArg(ref)},this)">
+  <form class="row g-2" novalidate ${on('submit', 'trackResend', ref, EL)}>
     <div class="col-sm"><input class="form-control" type="email" name="email" placeholder="Contact email on the application" required><div class="invalid-feedback">Enter a valid email address.</div></div>
     <div class="col-sm-auto"><button class="btn btn-primary w-100">Email me the link</button></div>
   </form></div></div>`;
 
 function trackCard(a, cfg) {
   if (!isAppRef(a.ref)) throw new Error('Unexpected application reference');
-  const ref = esc(a.ref), refArg = jsArg(a.ref); // validated format: digits and "APP-" only
+  const ref = esc(a.ref); // validated format: digits and "APP-" only
   const fees = `<div class="bg-body-tertiary rounded p-3 small">
     <div class="d-flex justify-content-between"><span>Joining fee</span><span>${K(a.fees.joiningFee)}</span></div>
     <div class="d-flex justify-content-between"><span>${esc(a.tier)} annual dues</span><span>${K(a.fees.annualDues)}</span></div>
     <div class="d-flex justify-content-between fw-semibold border-top mt-2 pt-2"><span>Total due</span><span>${K(a.fees.total)}</span></div></div>`;
   const payBlock = `<div class="row g-4"><div class="col-md-6">${fees}</div>
     <div class="col-md-6">${checkoutForm('tpay', { methods: cfg.paymentMethods })}
-      <button class="btn btn-primary w-100 mt-3" onclick="trackPay(${refArg},this)">Pay ${K(a.fees.total)}</button>
+      <button class="btn btn-primary w-100 mt-3" ${on('click', 'trackPay', a.ref, EL)}>Pay ${K(a.fees.total)}</button>
       <div class="small text-body-secondary text-center mt-2">${icon('lock', 'me-1')}Secured payment · receipt emailed automatically</div></div></div>`;
 
   let action = '';
   if (a.stage === 'DETAILS') action = `${a.returnNote ? alertBox('danger', 'arrow-return-left', `<b>Returned by the Secretariat:</b> ${esc(a.returnNote)}`) : ''}
     <h3 class="h6 fw-semibold">Upload your Ministry of Finance authorization</h3>
-    <form id="mofform" class="row g-3" novalidate onsubmit="event.preventDefault();trackUpload(${refArg},this)">
+    <form id="mofform" class="row g-3" novalidate ${on('submit', 'trackUpload', a.ref, EL)}>
       <div class="col-12"><label class="form-label small fw-medium">Authorization reference</label><input class="form-control" name="mofRef" required placeholder="MoF/ML/2026/0000"><div class="invalid-feedback">Required.</div></div>
       <div class="col-12"><label class="form-label small fw-medium">Document <span class="text-body-secondary fw-normal">(PDF, JPG or PNG, up to 10 MB)</span></label><input class="form-control" type="file" name="mofFile" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach the authorization document.</div></div>
       <div class="col-12"><button class="btn btn-primary">Submit for verification</button></div>
@@ -473,7 +473,7 @@ function trackCard(a, cfg) {
       action = `${alertBox('success', 'check-circle', 'Your MoF authorization has been verified. Complete your bank transfer, then upload the proof of payment.')}
         <div class="row g-4"><div class="col-md-6"><div class="bg-body-tertiary rounded p-3 small d-grid gap-1"><div class="fw-semibold mb-1">Pay ${K(p.amount)} into this account</div>
           ${row('Bank', esc(b.bank))}${row('Account name', esc(b.name))}${row('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${row('Branch', esc(b.branch))}${row('Payment reference', `<span class="font-monospace">${esc(p.ref)}</span>`)}</div></div>
-        <div class="col-md-6"><form id="proofform" class="d-grid gap-2" novalidate onsubmit="event.preventDefault();trackProof(${refArg},${jsArg(p.ref)},this)">
+        <div class="col-md-6"><form id="proofform" class="d-grid gap-2" novalidate ${on('submit', 'trackProof', a.ref, p.ref, EL)}>
           <div><label class="form-label small fw-medium">Your bank transaction reference</label><input class="form-control" name="bankRef" required placeholder="e.g. FT26285ABC12"><div class="invalid-feedback">Required.</div></div>
           <div><label class="form-label small fw-medium">Proof of payment <span class="text-body-secondary fw-normal">(PDF, JPG or PNG)</span></label><input class="form-control" type="file" name="proof" accept=".pdf,.jpg,.jpeg,.png" required><div class="invalid-feedback">Attach your deposit slip or transfer confirmation.</div></div>
           <button class="btn btn-primary">Submit proof of payment</button></form></div></div>
@@ -492,8 +492,8 @@ function trackCard(a, cfg) {
   if (a.stage === 'ACCREDITED') action = `${alertBox('success', 'award', `Congratulations, you are now an accredited MLAZ member. Your member number is <b>${esc(a.member?.number)}</b>.`)}
     <p class="small">We’ve emailed <b>${esc(a.contactEmail)}</b> a link to set your member portal password. Use it within 7 days.</p>
     <div class="d-flex flex-wrap gap-2">
-      <button class="btn btn-outline-primary" onclick="trackCert(${refArg},this)">${icon('award', 'me-1')} Download certificate</button>
-      ${a.payment?.status === 'SUCCESS' ? `<button class="btn btn-outline-secondary" onclick="trackReceipt(${refArg},${jsArg(a.payment.ref)},this)">${icon('receipt', 'me-1')} Receipt</button>` : ''}
+      <button class="btn btn-outline-primary" ${on('click', 'trackCert', a.ref, EL)}>${icon('award', 'me-1')} Download certificate</button>
+      ${a.payment?.status === 'SUCCESS' ? `<button class="btn btn-outline-secondary" ${on('click', 'trackReceipt', a.ref, a.payment.ref, EL)}>${icon('receipt', 'me-1')} Receipt</button>` : ''}
       <a class="btn btn-primary" href="#/login/member">Go to member portal</a></div>`;
 
   if (a.stage === 'REJECTED') action = alertBox('danger', 'x-octagon', `<b>This application was not approved.</b> ${esc(a.rejectionReason || '')}<div class="mt-1">Contact the Secretariat on secretariat@mlaz.org.zm if you have questions.</div>`, 'mb-0 fs-6');
@@ -573,12 +573,12 @@ function login(role) {
         <li class="nav-item"><a class="nav-link ${member ? '' : 'active'}" href="#/login/admin">Secretariat</a></li>
       </ul>
       <div id="loginerr"></div>
-      <form onsubmit="event.preventDefault();doLogin('${role}',this)" novalidate>
+      <form ${on('submit', 'doLogin', role, EL)} novalidate>
         <div class="mb-3"><label class="form-label small fw-medium">Email address</label><input class="form-control form-control-lg" type="email" name="email" value="${dev ? DEMO[role] : ''}" autocomplete="username" required></div>
         <div class="mb-3"><label class="form-label small fw-medium">Password</label><input class="form-control form-control-lg" type="password" name="password" autocomplete="current-password" required></div>
         <div class="d-flex justify-content-between align-items-center mb-4 small">
           <div class="form-check"><input class="form-check-input" type="checkbox" name="remember" id="remember"><label class="form-check-label" for="remember">Keep me signed in</label></div>
-          <a href="javascript:void 0" onclick="forgotPassword(this.closest('form').email.value)">Forgot password?</a>
+          <a href="#" role="button" ${on('click', 'forgotFromLogin', EL)}>Forgot password?</a>
         </div>
         <button class="btn btn-primary btn-lg w-100">Sign in</button>
       </form>
@@ -597,7 +597,7 @@ async function doLogin(role, form) {
   busy(btn, true, 'Signing in…');
   try {
     const s = await signIn(email, pwd, role === 'admin' ? 'staff' : 'member', form.remember.checked);
-    if (s.mfaRequired) return showMfaStep(role, s.mfaToken, form);
+    if (s.mfaRequired) return showMfaStep(role, s.mfaToken, form, s.method);
     await afterSignIn(role, s, btn, err);
   } catch (e) {
     busy(btn, false);
@@ -611,16 +611,23 @@ function afterSignIn(role, s) {
   nav(role === 'admin' ? 'app/dashboard' : 'app/overview');
 }
 
-// Second step for accounts with two-factor sign-in. The intermediate token stays in this closure only.
-function showMfaStep(role, mfaToken, form) {
+// Second step: the authenticator app (accounts with two-factor sign-in), or a code emailed by the server because the
+// account has seen repeated failed sign-ins and this browser has not signed in to it before. The intermediate token
+// stays in this closure only.
+function showMfaStep(role, mfaToken, form, method = 'totp') {
   const err = msg => { document.getElementById('loginerr').innerHTML = alertBox('danger', 'exclamation-circle', msg); };
-  document.getElementById('loginerr').innerHTML = '';
+  const emailed = method === 'email';
+  document.getElementById('loginerr').innerHTML = emailed
+    ? alertBox('warning', 'shield-exclamation', 'There have been repeated failed attempts to sign in to this account, so signing in from a new device needs a code. We’ve emailed one to the account’s address.')
+    : '';
   form.outerHTML = `<form id="mfaform" novalidate>
-    <p class="small text-body-secondary">Enter the 6-digit code from your authenticator app. Lost your phone? Enter one of your recovery codes instead.</p>
-    <div class="mb-4"><label class="form-label small fw-medium" for="mfacode">Authentication code</label>
+    <p class="small text-body-secondary">${emailed
+      ? 'Enter the 6-digit sign-in code from the email. It is valid for 10 minutes. No email? Check your spam folder, or start again for a new code.'
+      : 'Enter the 6-digit code from your authenticator app. Lost your phone? Enter one of your recovery codes instead.'}</p>
+    <div class="mb-4"><label class="form-label small fw-medium" for="mfacode">${emailed ? 'Sign-in code' : 'Authentication code'}</label>
       <input class="form-control form-control-lg text-center font-monospace" id="mfacode" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="20" required autofocus></div>
     <button class="btn btn-primary btn-lg w-100">Verify</button>
-    <div class="text-center mt-3"><a class="small" href="#/login/${role === 'admin' ? 'admin' : 'member'}" onclick="setTimeout(rerender)">Start again</a></div></form>`;
+    <div class="text-center mt-3"><a class="small" href="#/login/${role === 'admin' ? 'admin' : 'member'}" ${on('click', 'rerenderSoon')}>Start again</a></div></form>`;
   const f = document.getElementById('mfaform');
   f.code.focus();
   f.onsubmit = async e => {
@@ -631,16 +638,17 @@ function showMfaStep(role, mfaToken, form) {
     try { await afterSignIn(role, await completeSignIn(mfaToken, code, role === 'admin' ? 'staff' : 'member'), btn, err); }
     catch (ex) {
       busy(btn, false); f.code.value = ''; f.code.focus();
-      err(ex.status === 401 && ex.code !== 'INVALID_CODE' ? `${esc(ex.message)} <a href="#/login/${role}" onclick="setTimeout(rerender)">Sign in again</a>.` : esc(ex.message));
+      err(ex.status === 401 && ex.code !== 'INVALID_CODE' ? `${esc(ex.message)} <a href="#/login/${role}" ${on('click', 'rerenderSoon')}>Sign in again</a>.` : esc(ex.message));
     }
   };
 }
 
+const forgotFromLogin = link => forgotPassword(link.closest('form').email.value);
 function forgotPassword(prefill = '') {
   const el = modal({
     title: 'Reset your password',
     body: `<p class="small text-body-secondary">Enter the email you sign in with. If it has an account, we’ll email a link to set a new password (valid for 1 hour).</p>
-      <form novalidate onsubmit="event.preventDefault()"><input class="form-control" type="email" name="email" value="${esc(prefill)}" required placeholder="you@example.zm"><div class="invalid-feedback">Enter a valid email address.</div></form>`,
+      <form novalidate><input class="form-control" type="email" name="email" value="${esc(prefill)}" required placeholder="you@example.zm"><div class="invalid-feedback">Enter a valid email address.</div></form>`,
     footer: '<button class="btn btn-light" data-bs-dismiss="modal">Cancel</button><button class="btn btn-primary" data-ok>Send reset link</button>',
   });
   const send = async () => {
@@ -664,10 +672,10 @@ function setPassword(_, query) {
   if (raw) after(() => history.replaceState(null, '', '#/set-password'));
   const card = inner => `<section class="py-5 bg-body-tertiary min-vh-75 d-flex align-items-center"><div class="container"><div class="row justify-content-center"><div class="col-md-8 col-lg-5">
     <div class="card border-0 shadow-sm"><div class="card-body p-4 p-md-5" id="setpw">${inner}</div></div></div></div></div></section>`;
-  if (!token) return card(`<h1 class="h4 mb-2">Set your password</h1><p class="small text-body-secondary mb-0">Open the link from your invitation or password-reset email. Links expire; <a href="javascript:void 0" onclick="forgotPassword()">ask for a new one</a>.</p>`);
+  if (!token) return card(`<h1 class="h4 mb-2">Set your password</h1><p class="small text-body-secondary mb-0">Open the link from your invitation or password-reset email. Links expire; <a href="#" role="button" ${on('click', 'forgotPassword')}>ask for a new one</a>.</p>`);
   return card(`<div class="text-center mb-4"><span class="brand-mark lg">${icon('key')}</span><h1 class="h4 mt-3 mb-1">Set your password</h1><p class="small text-body-secondary mb-0">Choose a password for your MLAZ account. Use at least 10 characters.</p></div>
     <div id="setpwerr"></div>
-    <form novalidate onsubmit="event.preventDefault();submitNewPassword(${jsArg(token)},this)">
+    <form novalidate ${on('submit', 'submitNewPassword', token, EL)}>
       <div class="mb-3"><label class="form-label small fw-medium">New password</label><input class="form-control form-control-lg" type="password" name="password" minlength="10" autocomplete="new-password" required><div class="invalid-feedback">Use at least 10 characters.</div></div>
       <div class="mb-4"><label class="form-label small fw-medium">Confirm password</label><input class="form-control form-control-lg" type="password" name="confirm" minlength="10" autocomplete="new-password" required><div class="invalid-feedback">Repeat the password.</div></div>
       <button class="btn btn-primary btn-lg w-100">Set password</button>
@@ -688,7 +696,7 @@ async function submitNewPassword(token, form) {
       <div class="d-flex justify-content-center gap-2"><a class="btn btn-primary" href="#/login/member">Member sign in</a><a class="btn btn-outline-secondary" href="#/login/admin">Secretariat sign in</a></div></div>`;
   } catch (e) {
     busy(btn, false);
-    errBox.innerHTML = alertBox('danger', 'exclamation-circle', `${esc(e.message)}${e.code === 'BAD_REQUEST' ? ' <a href="javascript:void 0" onclick="forgotPassword()">Send me a new link</a>.' : ''}`);
+    errBox.innerHTML = alertBox('danger', 'exclamation-circle', `${esc(e.message)}${e.code === 'BAD_REQUEST' ? ' <a href="#" role="button" data-on-click="forgotPassword">Send me a new link</a>.' : ''}`);
   }
 }
 
@@ -699,7 +707,7 @@ function verifyCard(m) {
   return `<div class="card mb-3 ${ok ? 'border-success-subtle' : 'border-danger-subtle'}"><div class="card-body p-4">
     <div class="d-flex gap-3 align-items-center mb-4"><span class="icon-circle ${ok ? 'bg-success-subtle text-success-emphasis' : 'bg-danger-subtle text-danger-emphasis'}" style="width:48px;height:48px;font-size:1.4rem">${icon(ok ? 'patch-check-fill' : 'exclamation-octagon')}</span>
       <div><h2 class="h5 mb-0">${ok ? 'Verified: accredited member in good standing' : 'Not an active accredited member'}</h2><div class="small text-body-secondary">${esc(m.name)} · checked ${fmtDate(new Date())}</div></div></div>
-    <div class="row g-3">${row('Member', esc(m.name))}${row('Member number', esc(m.number))}${row('Location', `${esc(m.town)}, ${esc(m.province)}`)}${row('Tier', tierBadge(esc(m.tier)))}
+    <div class="row g-3">${row('Member', esc(m.name))}${row('Member number', esc(m.number))}${row('Location', `${esc(m.town)}, ${esc(m.province)}`)}${row('Tier', tierBadge(m.tier))}
       ${row('MoF authorization', mofBadge(lower(m.mofStatus)))}${row('MLAZ accreditation', accredBadge(lower(m.accreditation)))}${row('Valid until', fmtDate(m.validUntil))}${m.certificateSerial ? row('Certificate no.', `<span class="font-monospace">${esc(m.certificateSerial)}</span>`) : ''}</div>
     ${ok ? '' : alertBox('danger', 'exclamation-triangle', 'This lender is not currently an active accredited MLAZ member. Proceed with caution.', 'mt-4 mb-0')}
   </div></div>`;
@@ -718,7 +726,7 @@ async function verify(q) {
   }
   return `<section class="py-5 bg-body-tertiary min-vh-75"><div class="container" style="max-width:760px">
     <h1 class="h2 fw-bold mb-1">Verify a lender</h1><p class="text-body-secondary">Enter a member number, certificate number or business name, or scan the QR code on a certificate.</p>
-    <form class="d-flex gap-2 mb-4" onsubmit="event.preventDefault();nav('verify/'+encodeURIComponent(this.q.value.trim()))">
+    <form class="d-flex gap-2 mb-4" ${on('submit', 'verifySearch', EL)}>
       <input class="form-control form-control-lg" name="q" placeholder="e.g. MLA-0421 or QuickLend" value="${esc(query)}" minlength="3" required>
       <button class="btn btn-primary btn-lg px-4">Verify</button>
     </form>${result}</div></section>`;
@@ -734,9 +742,9 @@ async function directory() {
   return `<section class="py-5 bg-body-tertiary min-vh-75"><div class="container">
     <h1 class="h2 fw-bold mb-1">Member directory</h1><p class="text-body-secondary">Accredited money lenders in good standing with MLAZ.</p>
     <div class="row g-2 mb-4">
-      <div class="col-md-6"><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" id="dirq" placeholder="Search by name, town or member number" oninput="filterDirectory()"></div></div>
-      <div class="col-6 col-md-3"><select class="form-select" id="dirprov" onchange="filterDirectory()"><option value="">All provinces</option>${cfg.provinces.map(p => `<option>${esc(p)}</option>`).join('')}</select></div>
-      <div class="col-6 col-md-3"><select class="form-select" id="dirtier" onchange="filterDirectory()"><option value="">All tiers</option>${tiersByPrice(cfg).map(t => `<option>${esc(t.name)}</option>`).join('')}</select></div></div>
+      <div class="col-md-6"><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" id="dirq" placeholder="Search by name, town or member number" ${on('input', 'filterDirectory')}></div></div>
+      <div class="col-6 col-md-3"><select class="form-select" id="dirprov" ${on('change', 'filterDirectory')}><option value="">All provinces</option>${cfg.provinces.map(p => `<option>${esc(p)}</option>`).join('')}</select></div>
+      <div class="col-6 col-md-3"><select class="form-select" id="dirtier" ${on('change', 'filterDirectory')}><option value="">All tiers</option>${tiersByPrice(cfg).map(t => `<option>${esc(t.name)}</option>`).join('')}</select></div></div>
     <div class="row g-3" id="dirlist"><div class="col-12 text-center py-5"><div class="spinner-border text-primary" role="status"></div></div></div>
     <div class="text-center mt-4" id="dirmore"></div></div></section>`;
 }
@@ -757,21 +765,25 @@ async function loadDirectory(more = false) {
     dir = { page, total: r.total, items: more ? [...dir.items, ...r.items] : r.items };
   } catch (e) {
     if (seq !== dirSeq) return;
-    list.innerHTML = `<div class="col-12">${alertBox('danger', 'exclamation-circle', `${esc(e.message)} <a href="javascript:void 0" onclick="filterDirectory()">Try again</a>.`)}</div>`;
+    list.innerHTML = `<div class="col-12">${alertBox('danger', 'exclamation-circle', `${esc(e.message)} <a href="#" role="button" ${on('click', 'filterDirectory')}>Try again</a>.`)}</div>`;
     return;
   }
   list.innerHTML = dir.items.map((m, i) => `<div class="col-md-6 col-lg-4"><div class="card h-100"><div class="card-body">
     <div class="d-flex gap-3 align-items-center mb-3">${avatar(m.name, i)}<div class="min-w-0"><div class="fw-semibold text-truncate">${esc(m.name)}</div><div class="small text-body-secondary">${esc(m.town)}, ${esc(m.province)}</div></div></div>
-    <div class="d-flex justify-content-between small mb-3"><span class="text-body-secondary">${esc(m.number)}</span>${tierBadge(esc(m.tier))}</div>
+    <div class="d-flex justify-content-between small mb-3"><span class="text-body-secondary">${esc(m.number)}</span>${tierBadge(m.tier)}</div>
     <div class="d-flex justify-content-between align-items-center"><span class="small text-success-emphasis">${icon('patch-check-fill', 'me-1')}Accredited</span><a href="#/verify/${encodeURIComponent(m.number)}" class="btn btn-sm btn-outline-primary">Verify</a></div>
   </div></div></div>`).join('') || `<div class="col-12">${empty('No members match your search.', 'search')}</div>`;
   document.getElementById('dirmore').innerHTML = dir.items.length < dir.total
-    ? `<div class="small text-body-secondary mb-2">Showing ${dir.items.length} of ${dir.total}</div><button class="btn btn-outline-secondary" onclick="loadDirectory(true)">Show more</button>`
+    ? `<div class="small text-body-secondary mb-2">Showing ${dir.items.length} of ${dir.total}</div><button class="btn btn-outline-secondary" ${on('click', 'loadDirectory', true)}>Show more</button>`
     : dir.total ? `<div class="small text-body-secondary">${dir.total} member${dir.total === 1 ? '' : 's'}</div>` : '';
 }
+
+const verifySearch = form => nav(`verify/${encodeURIComponent(form.q.value.trim())}`);
+const trackSearch = form => nav(`track/${encodeURIComponent(form.ref.value.trim().toUpperCase())}`);
+const rerenderSoon = () => setTimeout(rerender); // after a link to the page already shown
 
 export const PUBLIC = { '': home, apply, track, login, verify, directory, 'set-password': setPassword, 'secure-account': secureAccountPage };
 expose({
   goSection, wizNext, wizPrev, wizSubmit, trackUpload, trackPay, trackProof, trackCert, trackReceipt, trackResend,
-  doLogin, forgotPassword, submitNewPassword, filterDirectory, loadDirectory, toast,
+  doLogin, forgotPassword, forgotFromLogin, submitNewPassword, filterDirectory, loadDirectory, verifySearch, trackSearch, rerenderSoon,
 });

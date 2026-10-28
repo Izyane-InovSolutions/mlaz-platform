@@ -6,6 +6,13 @@ import { config } from '../config.js';
 import type { Actor } from './audit.js';
 import { ROLE_LABEL, isStaffRole } from './rbac.js';
 
+/**
+ * A session's absolute deadline: fixed at sign-in and never moved by refreshing. If the configured lifetime was
+ * lowered since, the shorter one applies. Checked on every request (guards.ts) and on every refresh (accounts.ts).
+ */
+export const sessionDeadline = (s: { createdAt: Date; expiresAt: Date }) =>
+  new Date(Math.min(s.expiresAt.getTime(), s.createdAt.getTime() + config.SESSION_ABSOLUTE_LIFETIME_HOURS * 3600e3));
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -32,16 +39,24 @@ export const verifyPassword = (passwordHash: string, password: string) => verify
 
 const ISSUER = 'mlaz-api', AUDIENCE = 'mlaz-platform';
 
-/** Short-lived access token. `setup` marks a staff session that must enrol in two-factor sign-in before anything else. */
+/**
+ * Short-lived access token for one session (`sid`). It never outlives the session's absolute deadline, and the session
+ * is re-checked on every request. `setup` marks a staff session that must enrol in two-factor sign-in first.
+ */
 // `ims` is the issue time in milliseconds: JWT `iat` has only 1-second precision, too coarse to tell whether a token
 // predates "sign out everywhere" issued in the same second.
-export const signAccessToken = (u: AuthUser, opts: { mfaSetup?: boolean } = {}) =>
-  jwt.sign({ typ: 'access', role: u.role, ims: Date.now(), ...(opts.mfaSetup && { setup: true }) }, config.JWT_SECRET,
-    { subject: u.id, expiresIn: config.ACCESS_TOKEN_TTL_MINUTES * 60, issuer: ISSUER, audience: AUDIENCE, algorithm: 'HS256' });
+export function signAccessToken(u: AuthUser, session: { id: string; deadline: Date }, opts: { mfaSetup?: boolean } = {}) {
+  const untilDeadline = Math.floor((session.deadline.getTime() - Date.now()) / 1000);
+  return jwt.sign({ typ: 'access', role: u.role, sid: session.id, ims: Date.now(), ...(opts.mfaSetup && { setup: true }) }, config.JWT_SECRET,
+    { subject: u.id, expiresIn: Math.max(1, Math.min(config.ACCESS_TOKEN_TTL_MINUTES * 60, untilDeadline)), issuer: ISSUER, audience: AUDIENCE, algorithm: 'HS256' });
+}
 
-/** Proves the password step passed; only exchangeable for a session together with a valid second factor. */
-export const signMfaToken = (userId: string, remember: boolean) =>
-  jwt.sign({ typ: 'mfa', remember }, config.JWT_SECRET, { subject: userId, expiresIn: 300, issuer: ISSUER, audience: AUDIENCE, algorithm: 'HS256' });
+/**
+ * Proves the password step passed; only exchangeable for a session together with a second factor: the authenticator
+ * app, or (`challenge`) the code emailed for a sign-in from an unrecognised device while the account is under attack.
+ */
+export const signMfaToken = (userId: string, remember: boolean, challenge?: string) =>
+  jwt.sign({ typ: 'mfa', remember, ...(challenge && { cid: challenge }) }, config.JWT_SECRET, { subject: userId, expiresIn: 600, issuer: ISSUER, audience: AUDIENCE, algorithm: 'HS256' });
 
 function verifyToken(token: string, typ: 'access' | 'mfa') {
   try {
@@ -55,12 +70,17 @@ function verifyToken(token: string, typ: 'access' | 'mfa') {
 
 export function verifyAccessToken(token: string) {
   const p = verifyToken(token, 'access');
-  return p && { userId: p.sub, issuedAt: new Date(typeof p.ims === 'number' ? p.ims : p.iat * 1000), mfaSetup: p.setup === true };
+  // Tokens without a session id predate absolute session lifetimes; they cannot be checked against one, so are refused.
+  if (!p || typeof p.sid !== 'string') return null;
+  return { userId: p.sub, sessionId: p.sid, issuedAt: new Date(typeof p.ims === 'number' ? p.ims : p.iat * 1000), mfaSetup: p.setup === true };
 }
 export function verifyMfaToken(token: string) {
   const p = verifyToken(token, 'mfa');
-  return p && { userId: p.sub, remember: p.remember === true };
+  return p && { userId: p.sub, remember: p.remember === true, challenge: typeof p.cid === 'string' ? p.cid : null };
 }
+
+/** The one spelling of an email used for look-ups and throttling, so case, spacing or Unicode forms cannot dodge a limit. */
+export const canonicalEmail = (email: string) => email.normalize('NFKC').trim().toLowerCase();
 
 export const staffLabel = (u: Pick<AuthUser, 'name' | 'title' | 'role'>) => `${u.name} (${u.title || ROLE_LABEL[u.role]})`;
 

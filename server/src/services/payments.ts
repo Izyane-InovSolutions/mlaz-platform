@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { LineType, Payment, PaymentMethod, PaymentPurpose, PaymentStatus, Prisma as P } from '../generated/prisma/client.js';
+import { config } from '../config.js';
 import { type Actor, SYSTEM, activity, audit } from '../lib/audit.js';
 import { type Tx, lockKey, prisma } from '../lib/db.js';
 import { conflict, notFound } from '../lib/errors.js';
@@ -32,10 +33,12 @@ export const offlineSchema = z.object({ method: z.enum(['BANK_TRANSFER', 'CASH']
 // A gateway payment not settled within this time is marked failed; a later success from the gateway is still honoured.
 const EXPIRED_REASON = 'No confirmation from the payment provider (timed out)';
 const REPLACED_REASON = 'Replaced by a new payment attempt';
+// The request may still have reached the gateway (a timeout or a dropped connection), so a later success is honoured.
+export const UNREACHABLE_REASON = 'The payment provider could not be reached. Please try again.';
 /** Set on pending event payments when the event is cancelled. A late success is still recorded, and flagged for refund. */
 export const EVENT_CANCELLED_REASON = 'Event cancelled';
 // Payments the server gave up on although the payer may still approve them at the gateway.
-const LATE_SUCCESS_REASONS = new Set([EXPIRED_REASON, REPLACED_REASON, EVENT_CANCELLED_REASON]);
+const LATE_SUCCESS_REASONS = new Set([EXPIRED_REASON, REPLACED_REASON, EVENT_CANCELLED_REASON, UNREACHABLE_REASON]);
 const GATEWAY_TIMEOUT_MIN = 30;
 const IN_PROGRESS_MIN = 3;
 const BANK_PROOF_DAYS = 7;
@@ -94,22 +97,42 @@ export async function guardPending(tx: Tx, where: P.PaymentWhereInput) {
   }
 }
 
-/** Sends a committed gateway payment to the provider. Bank transfers just wait for their proof of payment. */
+/**
+ * Sends a committed gateway payment to the provider. Bank transfers just wait for their proof of payment.
+ *
+ * The request is never retried here: our `ref` goes with it, and a gateway adapter that retries must use it as the
+ * idempotency key. When the gateway cannot be reached in time the payer is told to try again, but the payment may
+ * still have gone through, so: a late answer still records the gateway's reference, and a later success is applied.
+ */
 export async function initiate(paymentId: string) {
   const p = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId }, include: { lines: true } });
   if (isGatewayMethod(p.method) && p.status === 'PENDING' && !p.providerRef) {
+    const request = gateway().initiate({
+      ref: p.ref, amount: num(p.amount), method: p.method, msisdn: p.msisdn, payerName: p.payerName,
+      description: p.lines.map(l => l.description).join(', '),
+    });
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Payment gateway timed out')), config.PAYMENT_INITIATE_TIMEOUT_SECONDS * 1000);
+    });
+    let r: Awaited<typeof request>;
     try {
-      const r = await gateway().initiate({
-        ref: p.ref, amount: num(p.amount), method: p.method, msisdn: p.msisdn, payerName: p.payerName,
-        description: p.lines.map(l => l.description).join(', '),
-      });
-      // Only ever send payers to an HTTPS checkout page.
-      const checkoutUrl = r.checkoutUrl && /^https:\/\//.test(r.checkoutUrl) ? r.checkoutUrl : undefined;
-      await prisma.payment.update({ where: { id: p.id }, data: { providerRef: r.providerRef, checkoutUrl, qrPayload: r.qrPayload } });
-      if (r.status !== 'PENDING') await settle(p.id, { status: r.status, failureReason: r.failureReason }, SYSTEM);
-    } catch {
-      await settle(p.id, { status: 'FAILED', failureReason: 'The payment provider could not be reached. Please try again.' }, SYSTEM);
+      r = await Promise.race([request, timeout]);
+    } catch (err) {
+      console.error(`Payment ${p.ref}: the gateway did not accept the request (${(err as Error).message})`);
+      await settle(p.id, { status: 'FAILED', failureReason: UNREACHABLE_REASON }, SYSTEM);
+      // If the gateway answers after all, keep its reference so its webhook or a reconciliation can still find this payment.
+      request.then(late => prisma.payment.updateMany({ where: { id: p.id, providerRef: null }, data: { providerRef: late.providerRef } }))
+        .catch(() => {});
+      return paymentView(await loadPayment(p.id));
+    } finally {
+      clearTimeout(timer);
     }
+    // The gateway has the payment from here on. If its reference cannot be saved the error goes to the caller and the
+    // payment stays pending (the expiry job closes it), rather than being marked failed while money may move.
+    const checkoutUrl = r.checkoutUrl && /^https:\/\//.test(r.checkoutUrl) ? r.checkoutUrl : undefined; // HTTPS checkout pages only
+    await prisma.payment.update({ where: { id: p.id }, data: { providerRef: r.providerRef, checkoutUrl, qrPayload: r.qrPayload } });
+    if (r.status !== 'PENDING') await settle(p.id, { status: r.status, failureReason: r.failureReason }, SYSTEM);
   }
   return paymentView(await loadPayment(p.id));
 }

@@ -18,5 +18,7 @@ export const trackingToken = (ref: string) => createHmac('sha256', config.JWT_SE
 export const checkTrackingToken = (ref: string, token: unknown) => typeof token === 'string' && safeEqual(trackingToken(ref), token);
 export const trackingUrl = (ref: string) => `${config.PUBLIC_APP_URL}/#/track/${ref}?t=${trackingToken(ref)}`;
 
-/** Strips one-time tokens (set-password, tracking) from text that is stored or logged. */
-export const redactSecrets = (text: string) => text.replace(/([?&](?:token|t)=)[\w-]+/g, '$1[redacted]');
+/** Strips one-time tokens (set-password, tracking links, emailed sign-in codes) from text that is stored or logged. */
+export const redactSecrets = (text: string) => text
+  .replace(/([?&](?:token|t)=)[\w-]+/g, '$1[redacted]')
+  .replace(/(sign-in code(?: is)?:?\s*)\d{6}/gi, '$1[redacted]');

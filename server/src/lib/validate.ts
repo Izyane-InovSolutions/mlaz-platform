@@ -1,18 +1,24 @@
 import { z } from 'zod';
 import { AppError } from './errors.js';
 
+/** The 400 for invalid input, listing each invalid field. Also used for schema.parse() failures in services (app.ts). */
+export function validationFailed(error: z.ZodError) {
+  const fields = error.issues.map(i => ({ field: i.path.join('.'), message: i.message }));
+  return new AppError(400, 'VALIDATION_FAILED', fields.map(f => (f.field ? `${f.field}: ${f.message}` : f.message)).join('; '), { fields });
+}
+
 /** Parses input with a zod schema, turning failures into a 400 that lists each invalid field. */
 export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T> {
   const r = schema.safeParse(data);
   if (r.success) return r.data;
-  const fields = r.error.issues.map(i => ({ field: i.path.join('.'), message: i.message }));
-  throw new AppError(400, 'VALIDATION_FAILED', fields.map(f => (f.field ? `${f.field}: ${f.message}` : f.message)).join('; '), { fields });
+  throw validationFailed(r.error);
 }
 
 export const PROVINCES = ['Central', 'Copperbelt', 'Eastern', 'Luapula', 'Lusaka', 'Muchinga', 'Northern', 'North-Western', 'Southern', 'Western'] as const;
 
 // No control characters in any text field (line breaks and tabs are allowed in free text only).
-const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
+// eslint-disable-next-line no-control-regex -- matching control characters is the point: they are rejected
+const CONTROL =/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/;
 const trimmed = (max = 200) => z.string().trim().min(1, 'Required').max(max).refine(v => !CONTROL.test(v), 'Contains characters that are not allowed');
 export const s = {
   text: trimmed,
@@ -21,6 +27,7 @@ export const s = {
   line: (max = 200) => trimmed(max).refine(v => !/[\r\n]/.test(v), 'Must be a single line'),
   email: z.string().trim().toLowerCase().pipe(z.email('Enter a valid email address')),
   phone: z.string().trim().regex(/^\+?[0-9 ()-]{9,20}$/, 'Enter a valid phone number'),
+  // eslint-disable-next-line security/detect-unsafe-regex -- anchored, no nested quantifiers, input already trimmed: linear time
   msisdn: z.string().trim().transform(v => v.replace(/[\s()-]/g, '')).pipe(z.string().regex(/^(\+?260|0)?[79][5-7][0-9]{7}$/, 'Enter a valid Zambian mobile money number')),
   tpin: z.string().trim().regex(/^\d{10}$/, 'TPIN must be 10 digits'),
   pacra: z.string().trim().regex(/^\d{12}$/, 'PACRA number must be 12 digits'),
@@ -33,5 +40,3 @@ export const s = {
     pageSize: z.coerce.number().int().min(1).max(100).default(25),
   }),
 };
-
-export const paged = <T>(items: T[], total: number, page: number, pageSize: number) => ({ items, total, page, pageSize });

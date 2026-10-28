@@ -1,7 +1,7 @@
 // Online checkout against the API: choose a method, start the payment, then follow it until the gateway confirms.
 // Card payments open the gateway's secure page, so card numbers are never typed into MLAZ.
 import QRCode from 'qrcode';
-import { K, esc, expose, icon, modal } from './ui.js';
+import { K, esc, expose, icon, modal, on } from './ui.js';
 
 const MOBILE = ['MTN_MOMO', 'AIRTEL_MONEY', 'ZAMTEL_KWACHA'];
 
@@ -18,7 +18,7 @@ function fields(method, phone) {
 /** The method picker. `methods` is publicConfig().paymentMethods: [{ code, label }]. */
 export const checkoutForm = (id, { methods, phone = '' }) => `<div id="${id}" data-phone="${esc(phone)}">
   <label class="form-label small fw-medium">Payment method</label>
-  <select class="form-select mb-3" name="method" onchange="checkoutMethodChange('${id}')">${methods.map(m => `<option value="${esc(m.code)}">${esc(m.label)}</option>`).join('')}</select>
+  <select class="form-select mb-3" name="method" ${on('change', 'checkoutMethodChange', id)}>${methods.map(m => `<option value="${esc(m.code)}">${esc(m.label)}</option>`).join('')}</select>
   <div data-fields>${fields(methods[0]?.code, phone)}</div></div>`;
 
 function checkoutMethodChange(id) {

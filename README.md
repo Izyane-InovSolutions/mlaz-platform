@@ -27,6 +27,18 @@ npm run preview    # serve the build
 
 The UI calls `http://localhost:3000/api` by default. Set `VITE_API_URL` (see `.env.example`) to point it elsewhere.
 
+## Quality and security checks
+
+`npm install` sets up a pre-push hook that runs the full check suite (lint, format, types, all tests including the
+security regression tests, builds, dependency audit and secret scan) before every `git push`. CI runs the same checks.
+
+```bash
+npm run check        # fast checks while you work (~30 s, no database needed)
+npm run check:full   # everything CI runs (needs the test database: cd server && npm run db:up)
+```
+
+Commands, the vulnerability policy, and what to do when a check fails: [docs/QUALITY_CHECKS.md](docs/QUALITY_CHECKS.md).
+
 ## Deploy to Vercel
 
 Push to GitHub → vercel.com → **Add New → Project** → import the repo → accept the defaults
