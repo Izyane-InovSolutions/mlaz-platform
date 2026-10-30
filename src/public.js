@@ -6,7 +6,7 @@ import {
 
 /* ================= LAYOUT ================= */
 export const brand = (sub = true) => `<a class="navbar-brand d-flex align-items-center gap-2 me-4" href="#/">
-  <span class="brand-mark">${icon('shield-check')}</span>
+  <img src="/mlaz-logo.png" alt="MLAZ" class="brand-logo">
   <span class="lh-sm"><span class="d-block fw-bold">MLAZ</span>${sub ? '<span class="d-none d-sm-block text-body-secondary brand-sub">Money Lenders Association of Zambia</span>' : ''}</span></a>`;
 
 export function publicLayout(inner, active) {
@@ -42,7 +42,7 @@ export function publicLayout(inner, active) {
     <div class="container">
       <div class="row g-4">
         <div class="col-lg-4">
-          <div class="d-flex align-items-center gap-2 mb-3"><span class="brand-mark">${icon('shield-check')}</span><span class="fw-bold text-white">Money Lenders Association of Zambia</span></div>
+          <div class="d-flex align-items-center gap-2 mb-3"><img src="/mlaz-logo.png" alt="MLAZ" class="brand-logo"><span class="fw-bold text-white">Money Lenders Association of Zambia</span></div>
           <p class="small mb-0">The membership body for licensed money lenders in Zambia, promoting responsible, transparent lending and protecting borrowers.</p>
         </div>
         <div class="col-6 col-lg-2"><h6 class="text-white">Members</h6><ul class="list-unstyled small d-grid gap-2">
