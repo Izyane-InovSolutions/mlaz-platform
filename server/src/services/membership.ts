@@ -211,35 +211,69 @@ export async function expireMofAuthorizations() {
   return due.length;
 }
 
-/** Sends dues and MoF expiry reminders at fixed offsets. ReminderLog makes each reminder go out once per period. */
-export async function sendReminders() {
-  const t = today();
-  let sent = 0;
+// Days before the end of a dues period, and before a MoF authorization expires, at which a reminder is due.
+const DUES_REMINDER_DAYS = [60, 30, 7];
+const MOF_REMINDER_DAYS = [30, 7];
+
+/** The reminder due for a date `daysLeft` away: the nearest offset already reached, or null (none yet, or past). */
+export function dueReminder(daysLeft: number, offsets: number[]) {
+  if (daysLeft < 0) return null;
+  const reached = offsets.filter(d => daysLeft <= d);
+  return reached.length ? Math.min(...reached) : null;
+}
+
+/**
+ * Sends dues and MoF expiry reminders. Each reminder is due from its offset until the date itself, not only on the
+ * exact day, so a night the job did not run (or failed) is caught up by the next run. Only the most urgent due
+ * reminder goes out: after several missed nights the member gets "expires in 5 days", not three messages at once.
+ *
+ * ReminderLog (unique per member and key, written in the same transaction as the queued message) sends each
+ * reminder once however often this runs, including on two instances at once. The keys are those the exact-date
+ * version used, so nothing already sent is repeated. Each reminder is its own transaction: one that fails is counted
+ * and retried the next night, and the others still go out. Dates are Lusaka calendar days (see lib/dates).
+ */
+export async function sendReminders(t = today()) {
+  let sent = 0, failed = 0;
   const once = async (memberId: string, key: string, send: (tx: Tx) => Promise<unknown>) => {
-    await prisma.$transaction(async tx => {
-      const r = await tx.reminderLog.createMany({ data: [{ memberId, key }], skipDuplicates: true });
-      if (r.count) { await send(tx); sent++; }
-    });
-  };
-  for (const days of [60, 30, 7]) {
-    const members = await prisma.member.findMany({ where: { status: 'ACTIVE', validUntil: addDays(t, days) } });
-    for (const m of members) {
-      if (await prisma.duesPayment.findFirst({ where: { memberId: m.id, periodStart: { gt: m.validUntil } } })) continue;
-      const amount = await tierDues(prisma, m.tierName);
-      await once(m.id, `dues:${days}:${isoDate(m.validUntil)}`, async tx => {
-        await notify(tx, contact(m), T.duesReminder(m, days, amount));
-        await activity(tx, m.id, 'reminder_sent', 'Dues reminder sent', `${days} days before ${fmtDate(m.validUntil)}`);
+    try {
+      const queued = await prisma.$transaction(async tx => {
+        const r = await tx.reminderLog.createMany({ data: [{ memberId, key }], skipDuplicates: true });
+        if (r.count) await send(tx);
+        return r.count > 0;
       });
+      if (queued) sent++;
+    } catch (err) {
+      failed++;
+      console.error(`Reminder ${key} for member ${memberId} failed (${(err as Error).message})`);
     }
+  };
+
+  // Dues: active members whose paid period ends within the widest window, and who have not already paid ahead.
+  const duesDue = await prisma.member.findMany({ where: { status: 'ACTIVE', validUntil: { gte: t, lte: addDays(t, Math.max(...DUES_REMINDER_DAYS)) } } });
+  const paidAhead = await prisma.duesPayment.findMany({ where: { memberId: { in: duesDue.map(m => m.id) }, periodStart: { gt: t } }, select: { memberId: true, periodStart: true } });
+  const amounts = new Map<string, Awaited<ReturnType<typeof tierDues>>>();
+  for (const m of duesDue) {
+    const daysLeft = daysBetween(t, m.validUntil);
+    const offset = dueReminder(daysLeft, DUES_REMINDER_DAYS);
+    if (offset === null || paidAhead.some(d => d.memberId === m.id && d.periodStart > m.validUntil)) continue;
+    if (!amounts.has(m.tierName)) amounts.set(m.tierName, await tierDues(prisma, m.tierName));
+    const amount = amounts.get(m.tierName)!;
+    await once(m.id, `dues:${offset}:${isoDate(m.validUntil)}`, async tx => {
+      await notify(tx, contact(m), T.duesReminder(m, daysLeft, amount));
+      await activity(tx, m.id, 'reminder_sent', 'Dues reminder sent', `${daysLeft} days before ${fmtDate(m.validUntil)}`);
+    });
   }
-  for (const days of [30, 7]) {
-    const members = await prisma.member.findMany({ where: { mofStatus: 'VALID', mofExpiry: addDays(t, days) } });
-    for (const m of members) {
-      if (await prisma.mofRenewal.findFirst({ where: { memberId: m.id, status: 'PENDING' } })) continue;
-      await once(m.id, `mof:${days}:${isoDate(m.mofExpiry!)}`, tx => notify(tx, contact(m), T.mofExpiring({ ...m, mofExpiry: m.mofExpiry! }, days)));
-    }
+
+  // MoF: valid authorizations expiring within the widest window, unless a renewal is already waiting for review.
+  const mofDue = await prisma.member.findMany({ where: { mofStatus: 'VALID', mofExpiry: { gte: t, lte: addDays(t, Math.max(...MOF_REMINDER_DAYS)) } } });
+  const renewing = new Set((await prisma.mofRenewal.findMany({ where: { memberId: { in: mofDue.map(m => m.id) }, status: 'PENDING' }, select: { memberId: true } })).map(r => r.memberId));
+  for (const m of mofDue) {
+    const daysLeft = daysBetween(t, m.mofExpiry!);
+    const offset = dueReminder(daysLeft, MOF_REMINDER_DAYS);
+    if (offset === null || renewing.has(m.id)) continue;
+    await once(m.id, `mof:${offset}:${isoDate(m.mofExpiry!)}`, tx => notify(tx, contact(m), T.mofExpiring({ ...m, mofExpiry: m.mofExpiry! }, daysLeft)));
   }
-  return sent;
+  return { sent, failed };
 }
 
 /* ================= VIEWS ================= */

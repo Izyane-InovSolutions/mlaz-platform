@@ -7,6 +7,7 @@ import { conflict, notFound } from '../lib/errors.js';
 import { nextRef } from '../lib/ids.js';
 import { K, num, sum } from '../lib/money.js';
 import type { StoredFile } from '../lib/uploads.js';
+import { withTimeout } from '../lib/timeout.js';
 import { s } from '../lib/validate.js';
 import { gateway, providerByName } from '../providers/payments.js';
 import { accreditApplication, applyDues } from './membership.js';
@@ -111,13 +112,9 @@ export async function initiate(paymentId: string) {
       ref: p.ref, amount: num(p.amount), method: p.method, msisdn: p.msisdn, payerName: p.payerName,
       description: p.lines.map(l => l.description).join(', '),
     });
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error('Payment gateway timed out')), config.PAYMENT_INITIATE_TIMEOUT_SECONDS * 1000);
-    });
     let r: Awaited<typeof request>;
     try {
-      r = await Promise.race([request, timeout]);
+      r = await withTimeout(request, config.PAYMENT_INITIATE_TIMEOUT_SECONDS * 1000, 'Payment gateway timed out');
     } catch (err) {
       console.error(`Payment ${p.ref}: the gateway did not accept the request (${(err as Error).message})`);
       await settle(p.id, { status: 'FAILED', failureReason: UNREACHABLE_REASON }, SYSTEM);
@@ -125,8 +122,6 @@ export async function initiate(paymentId: string) {
       request.then(late => prisma.payment.updateMany({ where: { id: p.id, providerRef: null }, data: { providerRef: late.providerRef } }))
         .catch(() => {});
       return paymentView(await loadPayment(p.id));
-    } finally {
-      clearTimeout(timer);
     }
     // The gateway has the payment from here on. If its reference cannot be saved the error goes to the caller and the
     // payment stays pending (the expiry job closes it), rather than being marked failed while money may move.
@@ -247,20 +242,31 @@ export async function recordOffline(tx: Tx, actor: Actor, p: Omit<NewPayment, 'r
 
 /* ================= RECONCILIATION ================= */
 
-/** Asks the gateway about every pending online payment and applies final outcomes. */
-export async function reconcilePending(actor: Actor = SYSTEM) {
-  const pending = await prisma.payment.findMany({ where: { status: 'PENDING', providerRef: { not: null } } });
-  let settled = 0;
+/**
+ * Asks the gateway about every pending online payment and applies final outcomes. The background job runs this under a
+ * cluster-wide lease and passes `stillHeld`, checked before each gateway call: if the lease was lost (this run overran
+ * it) the run stops rather than overlap the next holder. Settlement is idempotent and locks the payment row anyway, so
+ * an overlap could only repeat gateway queries, never apply an outcome twice.
+ */
+export async function reconcilePending(actor: Actor = SYSTEM, stillHeld: () => Promise<boolean> = async () => true) {
+  const pending = await prisma.payment.findMany({ where: { status: 'PENDING', providerRef: { not: null } }, orderBy: { createdAt: 'asc' } });
+  let checked = 0, settled = 0;
   for (const p of pending) {
     const provider = providerByName(p.provider);
     if (!provider) continue;
-    const outcome = await provider.query({ providerRef: p.providerRef!, createdAt: p.createdAt, msisdn: p.msisdn }).catch(() => null);
+    if (!(await stillHeld())) break;
+    checked++;
+    const query = provider.query({ providerRef: p.providerRef!, createdAt: p.createdAt, msisdn: p.msisdn });
+    const outcome = await withTimeout(query, config.PAYMENT_INITIATE_TIMEOUT_SECONDS * 1000, 'Payment gateway timed out').catch(err => {
+      console.error(`Payment ${p.ref}: status query failed (${(err as Error).message})`);
+      return null;
+    });
     if (outcome && outcome.status !== 'PENDING') {
       await settle(p.id, outcome, actor);
       settled++;
     }
   }
-  return { checked: pending.length, settled };
+  return { checked, settled };
 }
 
 export async function expireStale() {

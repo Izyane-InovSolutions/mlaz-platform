@@ -155,10 +155,10 @@ Ordered by impact.
 | D3 | `services/accounts.ts` (about 550 lines) mixes throttling, device cookies, sessions, invites/passwords, MFA and user management | Hard to review; security-critical | Split into `accounts/throttle.ts`, `sessions.ts`, `passwords.ts`, `mfa.ts`, `users.ts` behind the same exports |
 | D4 | Several multi-write operations are not in one transaction (`issueSession`, `refresh`, `logout`, `endAllSessions` with the default client) | A crash between writes can leave a session half-rotated (the user is signed out; no security impact found) | Wrap each in `prisma.$transaction` once D3 gives them a home |
 | D5 | Per-item queries in list views: `events.listForStaff` / `listForMember` (2 queries per event), `comms.listBroadcasts` (1 per broadcast), several unbounded `findMany` in reports and lists | Slow pages as data grows | Batch with `groupBy`/`_count`; add `take` and paging to list endpoints |
-| D6 | Nightly reminders target exact dates (validUntil = today + 60/30/7) | A failed nightly run skips those reminders for good | Match a window (`<=`), relying on `ReminderLog` to send each reminder once |
+| D6 | Nightly reminders target exact dates (validUntil = today + 60/30/7) | A failed nightly run skips those reminders for good | **Fixed 2026-11-02**: reminders are due from their offset until the date, `ReminderLog` keeps them to one each, nightly rules are isolated from each other (architecture.md, "Background jobs") |
 | D7 | A password holder can still exhaust the per-user authenticator-code counter, blocking 2FA steps for up to an hour | Requires the password; denial of service only | Count authenticator failures per session or attempt, not per user |
-| D8 | No timeouts on SMTP (nodemailer defaults) or S3 (SDK defaults), and SMTP sends are serial inside the job tick | One hung send delays all background jobs | Set `connectionTimeout`/`socketTimeout` on the transport and a request handler timeout on `S3Client` |
-| D9 | `reconcilePending` runs on every instance | N instances query the gateway N times per pending payment | Claim the reconcile run like the nightly job, or `SKIP LOCKED` over pending payments |
+| D8 | No timeouts on SMTP (nodemailer defaults) or S3 (SDK defaults), and SMTP sends are serial inside the job tick | One hung send delays all background jobs | **Fixed 2026-11-02**: configurable SMTP and S3 timeouts, bounded S3 retries with jitter, and an outbox that never sends past its claim (architecture.md, "External service timeouts") |
+| D9 | `reconcilePending` runs on every instance | N instances query the gateway N times per pending payment | **Fixed 2026-11-02**: a Postgres lease (`JobLease`) runs it on one instance per interval (architecture.md, "Background jobs") |
 | D10 | UI: about 30 `innerHTML` sinks rely on manual `esc()`; helpers copied across `public.js`, `member.js` and `admin.js`; `style-src 'unsafe-inline'` | Each new template is a chance to forget `esc()` | A tagged `html` template that escapes by default, then enable `eslint-plugin-no-unsanitized`; move shared helpers into `ui.js` |
 | D11 | Migration `20261021120000` signs everyone out and is not safe for a rolling deploy | Operational surprise | Deploy with all instances replaced at once, at a quiet time (documented in architecture.md) |
 | D12 | No Prettier | Deliberate: it would rewrite about half the lines | Adopt in one dedicated commit listed in `.git-blame-ignore-revs` (see QUALITY_CHECKS.md) |
@@ -192,7 +192,7 @@ Items marked **enforced** stop a production start when they are wrong.
 - [ ] Branch protection on `main` requiring the three CI checks (a GitHub admin must set it; not verifiable from code)
 - [ ] A real payment gateway adapter (only `sandbox` exists). It must use `ref` as its idempotency key
 - [ ] A real SMS gateway and credit-bureau adapter, each with timeouts
-- [ ] SMTP and S3 client timeouts (D8)
+- [x] SMTP and S3 client timeouts (D8)
 - [ ] Probes and a 30 s or longer stop grace period configured in the hosting platform
 - [ ] Load test of list endpoints before data grows (D5)
 - [ ] Deploy plan for migration `20261021120000` (D11)

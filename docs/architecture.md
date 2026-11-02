@@ -203,6 +203,8 @@ payment `ref` as its idempotency key), and waits at most `PAYMENT_INITIATE_TIMEO
   deploy, and instances still running the old code issue tokens the new code rejects. Deploy it with all instances
   replaced at once (not a rolling deploy), at a quiet time.
 - `20261028090000_query_indexes` adds indexes only (plus drops one index made redundant). Safe to apply online.
+- `20261102090000_job_leases` adds the empty `JobLease` table. Safe for a rolling deploy: instances still on the old
+  code ignore it (and keep reconciling on their own, as before, until they are replaced).
 
 ---
 
@@ -213,13 +215,46 @@ In the API process, on every instance, safe to run concurrently:
 | When | Job | Cross-instance safety |
 | --- | --- | --- |
 | Every 10 s | `processOutbox` | `FOR UPDATE SKIP LOCKED` |
-| Every 10 s (sandbox) / 5 min | `reconcilePending` | Settlement locks the row; final outcomes apply once |
-| Every 10 s | `expireStale` | Same |
+| Every 10 s (sandbox) / 5 min | `reconcilePending` | One instance in the cluster per interval, under a lease (below); settlement locks the row and applies a final outcome once |
+| Every 10 s | `expireStale` | Settlement locks the row; final outcomes apply once |
 | Daily from 01:00 Lusaka | lapse periods, expire MoF authorizations, reminders, prune auth records | Claimed once per day by an atomic upsert |
 
 Each job is isolated: one failing (for example the mail server is down) is logged with its name and does not stop the
 others. A tick never overlaps itself. On shutdown no new job starts and the one in progress finishes first.
 `JOBS_ENABLED=false` turns the scheduler off (tests, or a web-only instance).
+
+**Reconciliation lease** (`lib/leases.ts`, table `JobLease`). Postgres is the one store every instance shares (there is
+no Redis), so the lease lives there; an in-memory lock would not protect a second instance.
+
+- Acquired with one atomic upsert that only takes over an expired lease, so exactly one instance wins a race.
+- Times come from the database clock, so instances with drifting clocks agree on when a lease ends.
+- Renewing and releasing need the holder's random owner token. Before each payment the holder renews the lease
+  (3 minutes, longer than one gateway query can take); if that fails, it lost the lease and stops.
+- A crashed holder needs no clean-up: its lease runs out.
+- After a run the lease is kept until 5 minutes after the run started, so the cluster queries the gateway once per
+  interval, not once per instance. With the sandbox it is released at once, so payments settle within a tick.
+- If two runs ever overlapped (a run outliving its lease between two checks), the payment row lock and the "already
+  final" check in `settleInTx` still apply each outcome once. Each gateway status query is bounded by
+  `PAYMENT_INITIATE_TIMEOUT_SECONDS`.
+
+**Nightly rules catch up.** Each rule runs even when an earlier one fails, and the run reports which failed.
+
+- Lapsing and MoF expiry act on everything already past its date.
+- Dues reminders (60, 30 and 7 days before the end of the paid period) and MoF reminders (30 and 7 days before
+  expiry) are due from their offset until the date itself, not only on the exact day. A night that did not run, or
+  failed, is caught up by the next run.
+- After several missed nights only the most urgent reminder goes out, with the true number of days left.
+- `ReminderLog` (unique per member and reminder key, written in the same transaction as the queued message) makes each
+  reminder go out once, including when two runs overlap. A reminder that fails leaves no row and is sent the next
+  night.
+- Reminders skip members who are not active, who have already paid ahead, or whose MoF renewal awaits review. Days
+  are counted in Lusaka calendar days.
+
+**Outbox and slow mail servers.** Sends are serial and each is capped (`SMTP_SEND_TIMEOUT_SECONDS`). A worker claims a
+batch for 5 minutes and starts a send only while a whole send still fits in that claim. Otherwise the claim could
+lapse mid-batch, another worker would take the same messages and send them twice. Unstarted messages go straight back
+to the queue without using up an attempt. Failures keep the existing policy: back off 2, 4, 8 and 16 minutes, give up
+after 5 attempts. They are logged with the message id and the SMTP error, never the recipient or the body.
 
 ---
 
@@ -259,6 +294,28 @@ Probes are exempt from rate limiting. Both return 503 while the instance shuts d
 | `DB_CONNECT_TIMEOUT_SECONDS` | 10 | A request waiting longer than this for a connection fails instead of hanging. |
 | `DB_STATEMENT_TIMEOUT_SECONDS` | 0 (off) | Optional cap on a single statement. Set it only after checking report/export timings. |
 
+### External service timeouts
+
+No call to another service can hold a request or the background jobs indefinitely.
+
+| Service | Setting | Default | Bounds |
+| --- | --- | --- | --- |
+| SMTP | `SMTP_CONNECT_TIMEOUT_SECONDS` | 10 | DNS, connecting and the server's greeting |
+| SMTP | `SMTP_SOCKET_TIMEOUT_SECONDS` | 30 | Silence on an open connection (a stalled login or message) |
+| SMTP | `SMTP_SEND_TIMEOUT_SECONDS` | 60 (max 240) | One whole message; must fit inside the outbox's 5-minute claim |
+| S3 | `S3_CONNECT_TIMEOUT_SECONDS` | 5 | Opening a connection |
+| S3 | `S3_SOCKET_TIMEOUT_SECONDS` | 30 | Silence on an open connection, a download's body included |
+| S3 | `S3_OPERATION_TIMEOUT_SECONDS` | 120 | A whole operation with its retries, up to the start of a download's body |
+| S3 | `S3_MAX_ATTEMPTS` | 3 | Tries per operation |
+| Gateway | `PAYMENT_INITIATE_TIMEOUT_SECONDS` | 30 | Starting a payment, and each reconciliation status query |
+
+- **SMTP.** A failed send is a `DeliveryError` whose message carries the SMTP code and reply, with credentials
+  scrubbed. The outbox retries it.
+- **S3.** Only timeouts, connection resets, throttling (429) and 5xx answers are retried, with exponential backoff and
+  full jitter (200 ms base, 5 s cap). The SDK's own retries are off, because an upload is a file stream and only a
+  fresh stream per attempt can be sent again. A missing object is a 404. Any other failure is a 503
+  `STORAGE_UNAVAILABLE`, logged with the operation and the (server-generated) key.
+
 ### Production checklist
 
 - Strong, distinct 48+ character random `JWT_SECRET`, `DATA_ENCRYPTION_KEY`, `WEBHOOK_SECRET` (enforced).
@@ -275,7 +332,7 @@ Probes are exempt from rate limiting. Both return 503 while the instance shuts d
 
 | Interface | Drivers | Notes |
 | --- | --- | --- |
-| `Storage` (`lib/storage.ts`) | `local` (`STORAGE_DIR`), `s3` | Keys are server-generated; local paths confined to the root; S3 server-side encryption; streamed reads and writes |
+| `Storage` (`lib/storage.ts`) | `local` (`STORAGE_DIR`), `s3` | Keys are server-generated; local paths confined to the root; S3 server-side encryption; streamed reads and writes. S3 calls are bounded (see "External service timeouts") |
 | `PaymentProvider` | `sandbox` | Implement the interface for a real gateway (see "Payment gateway failures") |
 | `CreditBureau` | `simulated` | Real bureau needs an adapter with timeouts and the bureau's consent terms |
 | Email / SMS (`providers/messaging.ts`) | SMTP via nodemailer, or log; SMS log only | A real SMS gateway goes behind `sendSms()` |

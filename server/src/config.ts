@@ -53,8 +53,20 @@ const schema = z.object({
   S3_ENDPOINT: optional,
   S3_ACCESS_KEY_ID: optional,
   S3_SECRET_ACCESS_KEY: optional,
+  // A stalled storage service must not hold a request or job forever: time to connect, longest silence on an open
+  // connection, a cap on a whole operation (a download's body streams on after it), and tries per operation. Only
+  // timeouts, throttling and 5xx answers are retried, with exponential backoff and jitter.
+  S3_CONNECT_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(60).default(5),
+  S3_SOCKET_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(30),
+  S3_OPERATION_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(900).default(120),
+  S3_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(3),
 
   SMTP_URL: optional,
+  // Time to connect and receive the server's greeting, longest silence once connected, and a cap on one whole message.
+  // A failed send is retried by the outbox with backoff; it never blocks the background jobs for longer than this.
+  SMTP_CONNECT_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(10),
+  SMTP_SOCKET_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(30),
+  SMTP_SEND_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(240).default(60),
   EMAIL_FROM: z.string().default('MLAZ Secretariat <no-reply@mlaz.org.zm>'),
   SMS_DRIVER: z.enum(['log']).default('log'),
   SMS_SENDER_ID: z.string().default('MLAZ'),
@@ -62,7 +74,8 @@ const schema = z.object({
   PAYMENT_PROVIDER: z.enum(['sandbox']).default('sandbox'),
   SANDBOX_SETTLE_SECONDS: z.coerce.number().int().min(0).default(5),
   // How long a payer waits for the gateway to accept a payment request before being told to try again. A gateway that
-  // answers later still has its reference recorded, so its eventual confirmation is applied.
+  // answers later still has its reference recorded, so its eventual confirmation is applied. Also bounds each status
+  // query made by reconciliation.
   PAYMENT_INITIATE_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
   WEBHOOK_SECRET: z.string().min(8),
 

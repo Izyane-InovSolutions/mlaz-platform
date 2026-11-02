@@ -5,7 +5,7 @@ import { fmtDate } from '../lib/dates.js';
 import { notFound } from '../lib/errors.js';
 import { K } from '../lib/money.js';
 import { redactSecrets } from '../lib/tokens.js';
-import { mailer, sms } from '../providers/messaging.js';
+import { MAIL_SEND_LIMIT_MS, mailer, sms } from '../providers/messaging.js';
 
 export interface Message {
   subject: string;
@@ -26,6 +26,8 @@ export async function notify(db: Db, to: { email?: string | null; phone?: string
 
 const signoff = '\n\nMLAZ Secretariat\nMoney Lenders Association of Zambia';
 const portal = () => `${config.PUBLIC_APP_URL}/#/login/member`;
+// A reminder that catches up on a missed night can be close to the date itself.
+const expiresIn = (days: number) => (days <= 0 ? 'expires today' : days === 1 ? 'expires tomorrow' : `expires in ${days} days`);
 
 /** Message templates. Plain text keeps them readable in every mail client and easy to localise later. */
 export const T = {
@@ -81,12 +83,12 @@ export const T = {
     sms: 'MLAZ: your membership has lapsed. Pay your dues in the member portal to restore your accreditation.',
   }),
   duesReminder: (m: { name: string; contactName: string; validUntil: Date }, days: number, amount: number): Message => ({
-    subject: `MLAZ dues: accreditation expires in ${days} days`,
+    subject: `MLAZ dues: accreditation ${expiresIn(days)}`,
     text: `Dear ${m.contactName},\n\nThe accreditation of ${m.name} expires on ${fmtDate(m.validUntil)}. Pay your annual dues of ${K(amount)} in the member portal to renew it: ${portal()}${signoff}`,
     sms: `MLAZ: your accreditation expires ${fmtDate(m.validUntil)}. Pay ${K(amount)} dues in the member portal.`,
   }),
   mofExpiring: (m: { name: string; contactName: string; mofExpiry: Date }, days: number): Message => ({
-    subject: `MoF authorization expires in ${days} days`,
+    subject: `MoF authorization ${expiresIn(days)}`,
     text: `Dear ${m.contactName},\n\nThe Ministry of Finance money-lending authorization for ${m.name} expires on ${fmtDate(m.mofExpiry)}. Upload the renewed authorization in the member portal before then to keep your accreditation: ${portal()}${signoff}`,
   }),
   mofExpired: (m: { name: string; contactName: string }): Message => ({
@@ -125,35 +127,57 @@ export const T = {
   }),
 };
 
-/** Delivers due messages from the outbox. Rows are claimed with SKIP LOCKED, so several workers never send one twice. */
-export async function processOutbox(limit = 25) {
+// A worker owns the messages it claims for this long; if it dies mid-send they become due again.
+const OUTBOX_LEASE_MS = 5 * 60e3;
+// Room left before the lease ends for a database round trip or two after the last send.
+const OUTBOX_MARGIN_MS = 30e3;
+
+/**
+ * Delivers due messages from the outbox. Rows are claimed with SKIP LOCKED, so several workers never send one twice.
+ *
+ * Sends are serial and each can take up to MAIL_SEND_LIMIT_MS, so a slow mail server could otherwise keep this worker
+ * sending past its 5-minute claim, when another worker would pick the same rows up and send them again. So a message
+ * is only started while a full send still fits in the claim (`budgetMs` from claiming); the rest go back to the queue
+ * untouched (their attempt is not counted) for the next tick. Failures follow the retry policy: back off 2, 4, 8 and
+ * 16 minutes, and give up after the 5th attempt.
+ */
+export async function processOutbox(limit = 25, budgetMs = OUTBOX_LEASE_MS - MAIL_SEND_LIMIT_MS - OUTBOX_MARGIN_MS) {
+  const claimedAt = Date.now();
   const claimed = await prisma.$transaction(async tx => {
     const rows = await tx.$queryRaw<{ id: string }[]>`
       SELECT "id" FROM "Notification" WHERE "status" = 'PENDING' AND "sendAfter" <= now()
       ORDER BY "createdAt" LIMIT ${limit} FOR UPDATE SKIP LOCKED`;
     if (!rows.length) return [];
     const ids = rows.map(r => r.id);
-    // Lease the rows for 5 minutes; if this worker dies mid-send they become due again.
-    await tx.notification.updateMany({ where: { id: { in: ids } }, data: { sendAfter: new Date(Date.now() + 5 * 60e3), attempts: { increment: 1 } } });
-    return tx.notification.findMany({ where: { id: { in: ids } } });
+    await tx.notification.updateMany({ where: { id: { in: ids } }, data: { sendAfter: new Date(claimedAt + OUTBOX_LEASE_MS), attempts: { increment: 1 } } });
+    return tx.notification.findMany({ where: { id: { in: ids } }, orderBy: { createdAt: 'asc' } });
   });
 
-  for (const n of claimed) {
+  let sent = 0;
+  for (const [i, n] of claimed.entries()) {
+    if (Date.now() - claimedAt > budgetMs) {
+      const rest = claimed.slice(i).map(r => r.id);
+      await prisma.notification.updateMany({ where: { id: { in: rest }, status: 'PENDING' }, data: { sendAfter: new Date(), attempts: { decrement: 1 } } });
+      break;
+    }
     try {
       if (n.channel === 'EMAIL') await mailer.send(n.to, n.subject, n.body);
       else await sms.send(n.to, n.body);
       // Once delivered, the stored copy keeps no live links: a database reader can't use someone's set-password link.
       await prisma.notification.update({ where: { id: n.id }, data: { status: 'SENT', sentAt: new Date(), lastError: null, body: redactSecrets(n.body) } });
+      sent++;
     } catch (e) {
-      const lastError = (e instanceof Error ? e.message : String(e)).slice(0, 500);
+      const lastError = redactSecrets(e instanceof Error ? e.message : String(e)).slice(0, 500);
       const giveUp = n.attempts >= 5;
+      // The id identifies the message for the Secretariat's delivery list; the recipient and body stay out of the log.
+      console.error(`Notification ${n.id} (${n.channel}) attempt ${n.attempts} failed${giveUp ? ', giving up' : ''}: ${lastError}`);
       await prisma.notification.update({
         where: { id: n.id },
         data: giveUp ? { status: 'FAILED', lastError, body: redactSecrets(n.body) } : { lastError, sendAfter: new Date(Date.now() + 2 ** n.attempts * 60e3) },
       });
     }
   }
-  return claimed.length;
+  return sent;
 }
 
 /* ================= OPERATIONS ================= */

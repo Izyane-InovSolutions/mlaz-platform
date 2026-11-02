@@ -142,6 +142,15 @@ model Counter {
   value Int
 }
 
+// A background job that must run on one instance at a time (payment reconciliation) holds a lease here. The holder's
+// random `owner` token is required to renew or release it; a holder that crashes loses it when `expiresAt` passes.
+model JobLease {
+  name       String   @id
+  owner      String
+  expiresAt  DateTime
+  acquiredAt DateTime @default(now())
+}
+
 /* ================= MEMBERSHIP ================= */
 
 enum MemberStatus {

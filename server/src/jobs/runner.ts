@@ -2,23 +2,54 @@ import type { FastifyBaseLogger } from 'fastify';
 import { config } from '../config.js';
 import { lusakaHour, todayIso } from '../lib/dates.js';
 import { prisma } from '../lib/db.js';
+import { withLease } from '../lib/leases.js';
 import { expireMofAuthorizations, lapseEndedPeriods, sendReminders } from '../services/membership.js';
 import { processOutbox } from '../services/notifications.js';
 import { expireStale, reconcilePending } from '../services/payments.js';
 
 // In-process scheduler. Every step is safe to run on several API instances at once: the outbox uses SKIP LOCKED,
-// payment settlement locks the payment row, and the nightly job is claimed once per day with an atomic update.
+// payment settlement locks the payment row, reconciliation runs under a cluster-wide lease (one instance per
+// interval), and the nightly job is claimed once per day with an atomic update.
 
 const TICK_MS = 10_000;
 const RECONCILE_EVERY_MS = 5 * 60_000;
+// Longer than one gateway status query can take (PAYMENT_INITIATE_TIMEOUT_SECONDS, at most 120 s). The holder renews
+// it before each payment, so a long run keeps it, and a crashed holder's lease frees itself within this time.
+const RECONCILE_LEASE_MS = 3 * 60_000;
 const NIGHTLY_HOUR = 1; // 01:00 Lusaka time
 
-/** Runs the nightly membership rules. Exported for tests and for running by hand. */
+/**
+ * Runs the nightly membership rules. Each rule runs even if an earlier one failed; the failures are reported. Every
+ * rule catches up on a missed night: lapsing and MoF expiry act on anything already past its date, and reminders on
+ * anything inside its reminder window that has not had that reminder yet. Exported for tests and for running by hand.
+ */
 export async function runNightly() {
-  const lapsed = await lapseEndedPeriods();
-  const mofExpired = await expireMofAuthorizations();
-  const reminders = await sendReminders();
-  return { lapsed, mofExpired, reminders, pruned: await pruneAuthRecords() };
+  const failed: string[] = [];
+  const run = async <T>(name: string, fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (err) {
+      failed.push(name);
+      console.error(`Nightly job: ${name} failed (${(err as Error).message})`);
+      return null;
+    }
+  };
+  const lapsed = await run('lapse', lapseEndedPeriods);
+  const mofExpired = await run('mofExpiry', expireMofAuthorizations);
+  const reminders = await run('reminders', sendReminders);
+  if (reminders?.failed) failed.push('reminders'); // the rest went out; the failed ones are retried tomorrow
+  const pruned = await run('prune', pruneAuthRecords);
+  return { lapsed, mofExpired, reminders, pruned, failed };
+}
+
+/**
+ * Reconciles pending payments on one instance in the cluster at a time. With a real gateway, the lease is then held
+ * until RECONCILE_EVERY_MS after the run started, so N instances query the gateway once per interval, not N times.
+ * Returns null when another instance holds the lease. Exported for tests.
+ */
+export async function runReconcile(everyMs = config.PAYMENT_PROVIDER === 'sandbox' ? 0 : RECONCILE_EVERY_MS) {
+  const ran = await withLease('payments.reconcile', RECONCILE_LEASE_MS, lease => reconcilePending(undefined, lease.renew), elapsed => everyMs - elapsed);
+  return ran && ran.result;
 }
 
 /**
@@ -55,7 +86,6 @@ async function claimNightly() {
 export function startJobs(log: FastifyBaseLogger) {
   let running: Promise<void> | null = null;
   let stopped = false;
-  let lastReconcile = 0;
 
   const step = async (job: string, fn: () => Promise<unknown>) => {
     if (stopped) return;
@@ -68,15 +98,17 @@ export function startJobs(log: FastifyBaseLogger) {
 
   const tick = async () => {
     await step('outbox', processOutbox);
-    // The sandbox settles by being asked; real gateways send webhooks, with reconciliation as a safety net.
-    if (config.PAYMENT_PROVIDER === 'sandbox' || Date.now() - lastReconcile > RECONCILE_EVERY_MS) {
-      await step('reconcile', async () => { await reconcilePending(); lastReconcile = Date.now(); });
-    }
+    // The sandbox settles by being asked; real gateways send webhooks, with reconciliation as a safety net. Every
+    // instance asks each tick; the lease decides which one (if any) runs.
+    await step('reconcile', runReconcile);
     await step('expire', expireStale);
-    // Claimed before it runs, so two instances never both run it; if it fails part-way it waits for tomorrow (the
-    // error is logged). Lapsing and MoF expiry catch up on a missed night; reminders are for exact dates and do not.
+    // Claimed before it runs, so two instances never both run it. A rule that fails is logged and retried the next
+    // night, and each rule catches up on what a missed or failed night left undone (see runNightly).
     await step('nightly', async () => {
-      if (lusakaHour() >= NIGHTLY_HOUR && (await claimNightly())) log.info({ job: 'nightly', ...(await runNightly()) }, 'nightly membership job finished');
+      if (lusakaHour() < NIGHTLY_HOUR || !(await claimNightly())) return;
+      const result = await runNightly();
+      if (result.failed.length) log.error({ job: 'nightly', ...result }, 'nightly membership job finished with failures');
+      else log.info({ job: 'nightly', ...result }, 'nightly membership job finished');
     });
   };
 
