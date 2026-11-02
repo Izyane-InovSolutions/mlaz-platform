@@ -39,7 +39,7 @@ export default async function adminMemberRoutes(app: FastifyInstance) {
   app.post('/members/:number/offline-dues', { preHandler: requireStaff('payments:record') }, async (req, reply) =>
     reply.status(201).send(await members.recordOfflineDues(actorOf(req), (req.params as P<'number'>).number, parse(offlineSchema, req.body))));
   app.post('/members/:number/users', { preHandler: requireStaff('members:write') }, async (req, reply) => {
-    const v = parse(z.object({ email: s.email, name: s.text(120) }), req.body);
+    const v = parse(z.object({ email: s.email, name: s.name(120) }), req.body);
     return reply.status(201).send(await members.inviteMemberUser(actorOf(req), (req.params as P<'number'>).number, v.email, v.name));
   });
   app.patch('/members/:number/users/:userId', { preHandler: requireStaff('members:write') }, async (req, reply) => {

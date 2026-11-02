@@ -20,18 +20,18 @@ import { fees, tierDues } from './settings.js';
 const OPEN: ApplicationStage[] = ['DETAILS', 'MOF_REVIEW', 'PAYMENT_PENDING'];
 
 export const submitSchema = z.object({
-  name: s.text(200),
+  name: s.name(200),
   pacra: s.pacra,
   tpin: s.tpin,
-  town: s.text(100),
+  town: s.name(100),
   province: s.province,
   address: s.optionalText(300),
   tier: s.text(40),
-  contact: s.text(120),
-  position: s.text(120),
+  contact: s.name(120),
+  position: s.name(120),
   phone: s.phone,
   email: s.email,
-  director: s.text(120),
+  director: s.name(120),
   directorNrc: s.nrc,
   mofRef: s.optionalText(60),
   declare: z.enum(['true', 'on', '1'], { message: 'Confirm the declaration to submit' }),

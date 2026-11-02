@@ -25,6 +25,8 @@ export const s = {
   optionalText: (max = 500) => z.string().trim().max(max).refine(v => !CONTROL.test(v), 'Contains characters that are not allowed').optional().default(''),
   /** A single line: no line breaks either (names, references, anything that may end up in an email header). */
   line: (max = 200) => trimmed(max).refine(v => !/[\r\n]/.test(v), 'Must be a single line'),
+  /** A name of a business, person or place: a single line with no markup. Output is escaped anyway; this keeps junk out. */
+  name: (max = 200) => trimmed(max).refine(v => !/[\r\n]/.test(v), 'Must be a single line').refine(v => !/[<>]/.test(v), 'Must not contain < or >'),
   email: z.string().trim().toLowerCase().pipe(z.email('Enter a valid email address')),
   phone: z.string().trim().regex(/^\+?[0-9 ()-]{9,20}$/, 'Enter a valid phone number'),
   // eslint-disable-next-line security/detect-unsafe-regex -- anchored, no nested quantifiers, input already trimmed: linear time

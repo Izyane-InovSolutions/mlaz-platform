@@ -16,7 +16,7 @@ import { GOOD_SCORE, SCORE_MAX, SCORE_MIN, bureau, isGood } from '../providers/b
 
 export const loanSchema = z.object({
   borrowerNrc: s.nrc,
-  borrowerName: s.text(120),
+  borrowerName: s.name(120),
   borrowerPhone: s.optionalText(20),
   amount: s.money.refine(n => n > 0, 'Enter an amount above zero'),
   balance: s.money,

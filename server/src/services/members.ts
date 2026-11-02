@@ -84,9 +84,9 @@ export async function detail(number: string) {
 }
 
 export const updateSchema = z.object({
-  name: s.text(200), town: s.text(100), province: z.enum(PROVINCES), address: z.string().trim().max(300),
+  name: s.name(200), town: s.name(100), province: z.enum(PROVINCES), address: z.string().trim().max(300),
   tpin: s.tpin, pacra: z.union([s.pacra, z.literal('')]), tier: s.text(40),
-  contactName: s.text(120), contactPhone: s.phone, contactEmail: s.email,
+  contactName: s.name(120), contactPhone: s.phone, contactEmail: s.email,
 }).partial();
 
 export async function update(actor: Actor, number: string, body: unknown) {
@@ -144,7 +144,7 @@ export async function recordOfflineDues(actor: Actor, number: string, v: { metho
 // on certificates and in the public directory, so only the Secretariat changes those (update() above).
 const OWN_PROFILE_FIELDS = ['address', 'contactName', 'contactPhone', 'contactEmail'];
 const ownProfileSchema = z.object({
-  address: z.string().trim().max(300), contactName: s.line(120), contactPhone: s.phone, contactEmail: s.email,
+  address: z.string().trim().max(300), contactName: s.name(120), contactPhone: s.phone, contactEmail: s.email,
 }).partial();
 
 export async function updateOwnProfile(actor: Actor, memberId: string, body: unknown) {

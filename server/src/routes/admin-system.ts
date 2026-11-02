@@ -114,7 +114,7 @@ export default async function adminSystemRoutes(app: FastifyInstance) {
   /* ---------- staff accounts ---------- */
   app.get('/staff', { preHandler: requireStaff('staff:manage') }, async () => accounts.listStaff());
   app.post('/staff', { preHandler: requireStaff('staff:manage') }, async (req, reply) => {
-    const v = parse(z.object({ email: s.email, name: s.text(120), role: z.enum(STAFF_ROLES), title: z.string().trim().max(80).optional() }), req.body);
+    const v = parse(z.object({ email: s.email, name: s.name(120), role: z.enum(STAFF_ROLES), title: z.string().trim().max(80).optional() }), req.body);
     const u = await prisma.$transaction(async tx => {
       const user = await accounts.sendInvite(tx, { ...v, title: v.title || ROLE_LABEL[v.role] });
       await audit(tx, actorOf(req), 'Staff', 'Staff account created', `${v.email} · ${ROLE_LABEL[v.role]}`);
@@ -123,7 +123,7 @@ export default async function adminSystemRoutes(app: FastifyInstance) {
     return reply.status(201).send({ id: u.id, email: u.email, name: u.name, role: u.role, title: u.title });
   });
   app.patch('/staff/:id', { preHandler: requireStaff('staff:manage') }, async req => {
-    const v = parse(z.object({ name: s.line(120), role: z.enum(STAFF_ROLES), title: z.string().trim().max(80).nullable(), active: z.boolean(), resetMfa: z.literal(true) }).partial(), req.body);
+    const v = parse(z.object({ name: s.name(120), role: z.enum(STAFF_ROLES), title: z.string().trim().max(80).nullable(), active: z.boolean(), resetMfa: z.literal(true) }).partial(), req.body);
     const u = await accounts.updateStaff({ ...actorOf(req), id: userOf(req).id }, (req.params as { id: string }).id, v);
     return { id: u.id, email: u.email, name: u.name, role: u.role, title: u.title, active: u.active, mfaEnabled: !!u.totpEnabledAt };
   });
