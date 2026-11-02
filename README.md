@@ -3,9 +3,27 @@
 Clickable prototype of the Money Lenders Association of Zambia membership platform, built by iZyane.
 UI: **Bootstrap 5.3** + **Bootstrap Icons** (themed in `src/styles.scss`), Inter font.
 
-It runs entirely in the browser (no backend). Data changes are saved to `localStorage`, so they
-survive reloads. Use **Reset demo data** (site footer, or Settings in the Secretariat console) to
-restore the sample data.
+Data is stored in **Supabase** (a shared Postgres table plus a storage bucket for uploaded documents), so
+everyone sees the same members, applications and payments, and changes appear live on other devices.
+If Supabase isn't configured, the app falls back to this browser's `localStorage`, as in the original
+prototype. Use **Reset demo data** (Settings in the Secretariat console) to restore the sample data.
+
+> **Prototype access:** sign-in is still simulated, so anyone with the site's public Supabase key can read
+> and change all records and documents. Add Supabase Auth and tighten the policies in
+> `supabase/schema.sql` before putting real applicant data in it.
+
+## Set up Supabase (once)
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. Open **SQL Editor**, paste in `supabase/schema.sql` and run it. It creates the `records` table, the
+   `apply_changes` function, live updates and the `docs` storage bucket. It's safe to run again.
+3. From **Project Settings → API**, copy the project URL and the `anon` (or publishable) key.
+4. Locally: copy `.env.example` to `.env.local` and fill both in.
+5. On Netlify: **Site configuration → Environment variables**, add `VITE_SUPABASE_URL` and
+   `VITE_SUPABASE_ANON_KEY`, then **Deploys → Trigger deploy** (they're built into the bundle, so a
+   redeploy is needed after changing them).
+
+The first visit after setup loads the sample data into the empty database.
 
 ## Run locally
 
@@ -16,10 +34,10 @@ npm run build      # production build into dist/
 npm run preview    # serve the build
 ```
 
-## Deploy to Vercel
+## Deploy to Netlify
 
-Push to GitHub → vercel.com → **Add New → Project** → import the repo → accept the defaults
-(Vite is detected: build `npm run build`, output `dist`). Or from the CLI: `npx vercel --prod`.
+Import the repo in Netlify and accept the detected settings (build `npm run build`, publish `dist`), and
+add the two Supabase environment variables above.
 
 ## What's in it
 

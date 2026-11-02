@@ -6,7 +6,7 @@ import {
 
 /* ================= LAYOUT ================= */
 export const brand = (sub = true) => `<a class="navbar-brand d-flex align-items-center gap-2 me-4" href="#/">
-  <span class="brand-mark">${icon('shield-check')}</span>
+  <img src="/mlaz-logo.png" alt="MLAZ" class="brand-logo">
   <span class="lh-sm"><span class="d-block fw-bold">MLAZ</span>${sub ? '<span class="d-none d-sm-block text-body-secondary brand-sub">Money Lenders Association of Zambia</span>' : ''}</span></a>`;
 
 export function publicLayout(inner, active) {
@@ -42,7 +42,7 @@ export function publicLayout(inner, active) {
     <div class="container">
       <div class="row g-4">
         <div class="col-lg-4">
-          <div class="d-flex align-items-center gap-2 mb-3"><span class="brand-mark">${icon('shield-check')}</span><span class="fw-bold text-white">Money Lenders Association of Zambia</span></div>
+          <div class="d-flex align-items-center gap-2 mb-3"><img src="/mlaz-logo.png" alt="MLAZ" class="brand-logo"><span class="fw-bold text-white">Money Lenders Association of Zambia</span></div>
           <p class="small mb-0">The membership body for licensed money lenders in Zambia, promoting responsible, transparent lending and protecting borrowers.</p>
         </div>
         <div class="col-6 col-lg-2"><h6 class="text-white">Members</h6><ul class="list-unstyled small d-grid gap-2">
@@ -313,7 +313,7 @@ function renderWizard() {
   box.innerHTML = `<div class="mb-4">${stepper(W_STEPS, W.step)}</div><form id="wform" novalidate>${body}</form>
     <div class="d-flex justify-content-between mt-4 pt-3 border-top">
       <button class="btn btn-light" ${W.step === 0 ? 'disabled' : ''} onclick="wizPrev()">${icon('arrow-left', 'me-1')} Back</button>
-      ${W.step < 3 ? `<button class="btn btn-primary" onclick="wizNext()">Continue ${icon('arrow-right', 'ms-1')}</button>` : `<button class="btn btn-primary" onclick="wizSubmit()">Submit application</button>`}
+      ${W.step < 3 ? `<button class="btn btn-primary" onclick="wizNext()">Continue ${icon('arrow-right', 'ms-1')}</button>` : `<button class="btn btn-primary" onclick="wizSubmit(this)">Submit application</button>`}
     </div>`;
 }
 function wizCapture() {
@@ -328,8 +328,9 @@ function wizCapture() {
 }
 function wizNext() { if (!wizCapture()) return; W.step++; renderWizard(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
 function wizPrev() { const form = document.getElementById('wform'); const v = {}; form.querySelectorAll('[name]').forEach(el => { if (el.type === 'radio') { if (el.checked) v[el.name] = el.value; } else if (el.type !== 'file' && el.type !== 'checkbox') v[el.name] = el.value.trim(); }); Object.assign(W.data, v); W.step--; renderWizard(); }
-function wizSubmit() {
+async function wizSubmit(btn) {
   if (!wizCapture()) return;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Submitting…';
   const d = W.data, hasMof = !!(d.mofRef || d.mofFile);
   const app = {
     id: nextId('app', 'APP-'), name: d.name, town: d.town, province: d.province, address: d.address, contact: d.contact, position: d.position,
@@ -339,8 +340,14 @@ function wizSubmit() {
   };
   S.apps.unshift(app);
   audit(app.id, 'Application submitted', hasMof ? 'MoF authorization, PACRA certificate and director NRC uploaded' : 'PACRA certificate and director NRC uploaded · MoF authorization to follow', `${d.contact} (applicant)`);
-  commit();
-  Object.entries(W.blobs).forEach(([k, file]) => saveDoc(`${app.id}:${k.replace('File', '')}`, file));
+  const entry = S.audit[0];
+  // Only confirm once it's saved; otherwise take it back out so submitting again doesn't create a duplicate.
+  if (!(await commit())) {
+    [[S.apps, app], [S.audit, entry]].forEach(([arr, x]) => { const i = arr.indexOf(x); if (i >= 0) arr.splice(i, 1); });
+    btn.disabled = false; btn.textContent = 'Submit application';
+    return;
+  }
+  await Promise.all(Object.entries(W.blobs).map(([k, file]) => saveDoc(`${app.id}:${k.replace('File', '')}`, file)));
   document.getElementById('wizard').innerHTML = `<div class="text-center py-4">
     <span class="icon-circle bg-success-subtle text-success-emphasis mb-3" style="width:72px;height:72px;font-size:2rem">${icon('check-lg')}</span>
     <h2 class="h4">Application submitted</h2>
