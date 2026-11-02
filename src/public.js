@@ -1,6 +1,6 @@
 import {
   esc, K, fmtDate, icon, avatar, tierBadge, mofBadge, accredBadge, stageBadge, stepper, readForm, toast,
-  nav, after, expose, empty, modal, busy, rerender, NRC_ATTRS, digitsAttrs, on, EL,
+  nav, after, expose, empty, modal, busy, rerender, NRC_ATTRS, digitsAttrs, on, EL, getSession,
 } from './ui.js';
 import { ApiError, api, completeSignIn, download, forgetTrackToken, isTrackingToken, pub, publicConfig, saveTrackToken, signIn, trackToken } from './api.js';
 
@@ -24,6 +24,7 @@ export const brand = (sub = true) => `<a class="navbar-brand d-flex align-items-
   <span class="lh-sm"><span class="d-block fw-bold">MLAZ</span>${sub ? '<span class="d-none d-sm-block text-body-secondary brand-sub">Money Lenders Association of Zambia</span>' : ''}</span></a>`;
 
 export function publicLayout(inner, active) {
+  const session = getSession(); // signed-in visitors get a way back to their console instead of "Sign in"
   const link = (href, label, key) => `<li class="nav-item"><a class="nav-link ${active === key ? 'active fw-medium' : ''}" href="${href}">${label}</a></li>`;
   return `
   <nav class="navbar navbar-expand-lg bg-white border-bottom sticky-top py-2">
@@ -39,13 +40,13 @@ export function publicLayout(inner, active) {
           ${link('#/track', 'Track application', 'track')}
         </ul>
         <div class="d-flex flex-column flex-lg-row gap-2 py-2 py-lg-0">
-          <div class="dropdown">
+          ${session ? `<a class="btn btn-outline-secondary" href="#/app">${icon(session.role === 'admin' ? 'person-badge' : 'building', 'me-1')} ${session.role === 'admin' ? 'Secretariat console' : 'Member portal'}</a>` : `<div class="dropdown">
             <button class="btn btn-outline-secondary dropdown-toggle w-100" data-bs-toggle="dropdown">${icon('box-arrow-in-right', 'me-1')} Sign in</button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
               <li><a class="dropdown-item py-2" href="#/login/member">${icon('building', 'me-2 text-primary')}Member portal</a></li>
               <li><a class="dropdown-item py-2" href="#/login/admin">${icon('person-badge', 'me-2 text-primary')}Secretariat</a></li>
             </ul>
-          </div>
+          </div>`}
           <a class="btn btn-primary" href="#/apply">Apply for membership</a>
         </div>
       </div>
