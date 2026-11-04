@@ -108,3 +108,37 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: git diff --check "$BASE" "$HEAD"
+
+  e2e:
+    name: Browser end-to-end tests (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # Throwaway database server that exists only for this job; the suite creates mlaz_e2e itself.
+          POSTGRES_USER: mlaz
+          POSTGRES_PASSWORD: mlaz
+          POSTGRES_DB: postgres
+        ports: ['5435:5432']
+        options: >-
+          --health-cmd "pg_isready -U mlaz" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      - run: npm ci
+      - run: npm ci
+        working-directory: server
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+        env:
+          CI: 'true'
