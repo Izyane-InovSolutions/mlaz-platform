@@ -1,5 +1,9 @@
 # Architecture review: October 2026
 
+> The file paths below are those of the October 2026 layout (`lib/`, `services/`, `routes/`). The API has since been
+> reorganised into business modules (November 2026, see [architecture.md](architecture.md) and [decisions.md](decisions.md));
+> this review is kept as written.
+
 A review of the MLAZ platform (API in `server/`, UI in `src/`), what was changed as a result, and what remains. The
 resulting architecture is described in [architecture.md](architecture.md); checks and tooling in
 [QUALITY_CHECKS.md](QUALITY_CHECKS.md).

@@ -1,7 +1,7 @@
 # MLAZ Membership Platform
 
 Money Lenders Association of Zambia membership platform, built by iZyane.
-UI: **Bootstrap 5.3** + **Bootstrap Icons** (themed in `src/styles.scss`), Inter font. API: [`server/`](server/README.md).
+UI: **Bootstrap 5.3** + **Bootstrap Icons** (themed in `src/styles/styles.scss`), Inter font. API: [`server/`](server/README.md).
 
 **Everything runs on the API**: the public website, the Secretariat console and the member portal. No business data is
 kept in the browser. The console shows each staff member only what their role allows. Approvals use real
@@ -73,17 +73,19 @@ All demo accounts use the seed password (`Mlaz@2026demo` by default).
    in `0000` is declined). The certificate is issued automatically. Or pay by bank transfer and upload a proof, then
    sign in as `finance@mlaz.org.zm` → Payments & dues → *Awaiting review* → *Confirm payment*.
 6. **Verify a lender** with the new member number, or scan the certificate's QR code.
-7. In development, emails are printed in the API's console; the welcome email carries the set-password link.
+7. In development, without `SMTP_URL`, emails are printed in the API's console with one-time links and codes
+   redacted (whoever reads a log must not be able to use them). To follow a set-password or tracking link locally,
+   run a local mail catcher such as Mailpit and set `SMTP_URL=smtp://localhost:1025`.
 
 ## Structure
 
-- `src/main.js`: router (sync and async pages, loading and error states) and app shell
-- `src/api.js`: API client (tokens, refresh, errors, downloads, tracking tokens)
-- `src/checkout.js`: online payment picker and the follow-the-payment dialog
-- `src/public.js`: landing, apply, track, sign in, set password, verify, directory
-- `src/admin.js`: Secretariat console pages (API, permission-aware)
-- `src/member.js`: member portal pages (API)
-- `src/security.js`: two-factor sign-in, recovery codes, password change, sign out everywhere
-- `src/ui.js`: session display details, shared helpers and Bootstrap components
-- `src/styles.scss`: Bootstrap theme variables and custom styles
+- `src/main.js`: entry point (styles, Bootstrap, start the router)
+- `src/app/`: hash router and the console/portal shell
+- `src/core/`: the API client (the only `fetch`), session, permissions, the delegated event dispatcher, navigation
+- `src/shared/ui/`: business-independent components (format, tables, forms, modals, toasts)
+- `src/features/`: `public/`, `member/` and `admin/` pages, each a folder with its own `index.js`; `account/`
+  (two-factor sign-in, password, sessions) and `common/` (badges, checkout, downloads)
+- `server/`: the API, twelve business modules (see [docs/architecture.md](docs/architecture.md)); deployment and
+  operations: [docs/OPERATIONS.md](docs/OPERATIONS.md)
+- `src/styles/`: Bootstrap theme variables and custom styles
 - `vercel.json`: security headers for every page of the deployed UI

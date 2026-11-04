@@ -1,18 +1,21 @@
 # MLAZ Platform: Architecture
 
-Node.js 22+ · TypeScript · Fastify 5 · Prisma 7 · PostgreSQL 17 · vanilla-JS UI built with Vite
+Node.js 24 · TypeScript · Fastify 5 · Prisma 7 · PostgreSQL 17 · vanilla-JS UI built with Vite
 
-Two npm projects in one repository:
+Two npm projects in one repository, deployed independently:
 
 | Project | Folder | What it is |
 | --- | --- | --- |
-| UI | `/` (`src/`, `index.html`) | Static site deployed to Vercel. Public site, member portal, Secretariat console. Talks to the API only. |
+| UI | `/` (`src/`, `index.html`) | Static site deployed to Vercel. Public site, member portal, Secretariat console. Talks to the API only. Structure: [frontend-architecture.md](frontend-architecture.md). |
 | API | `server/` | One Fastify process: HTTP API plus in-process background jobs. Deployed separately. |
 
-The API is a **modular monolith**: one deployable, one database, with modules separated by folder and by enforced
-import rules. Nothing in the current load or team size justifies splitting it into services.
+The API is a **modular monolith**: one deployable and one database, split into twelve business modules with enforced
+boundaries. Nothing in the current load or team size justifies splitting it into services; the boundaries below are
+what would make that possible later. Each module, with what it owns and offers, is described in
+[backend-modules.md](backend-modules.md); the reasons behind the main choices are in [decisions.md](decisions.md).
 
-Quality and security tooling (lint, format, tests, CI, pre-push hook, dependency audit, secret scan) is described in
+Deployment, backups, rollback and failure handling: [OPERATIONS.md](OPERATIONS.md). Quality and security tooling (lint,
+format, tests, CI, pre-push hook, dependency audit, secret scan) is described in
 [QUALITY_CHECKS.md](QUALITY_CHECKS.md).
 
 ---
@@ -20,58 +23,104 @@ Quality and security tooling (lint, format, tests, CI, pre-push hook, dependency
 ## API folder layout
 
 ```
-server/
-  src/
-    index.ts        Entry point: build app -> listen -> start jobs. Graceful shutdown and process-level error handling.
-    app.ts          Fastify instance: plugins, global hooks, error handler, health probes, request ids, route mounting.
-    config.ts       Zod-validated environment. Exits on invalid config; productionProblems() blocks unsafe production starts.
-    lib/            Framework-light building blocks with no business rules: db client, auth tokens and guards, errors,
-                    validation, uploads, storage, crypto, dates, money, ids, rbac, audit.
-    services/       Business rules and workflows, one file per area (accounts, applications, membership, members,
-                    payments, events, lending, comms, expenses, reports, dashboard, directory, settings, notifications, pdf).
-    providers/      Adapters for external systems behind interfaces: payment gateway, credit bureau, email/SMS.
-    routes/         HTTP boundary: parse and validate input -> call a service -> shape the response.
-    jobs/runner.ts  In-process scheduler for the outbox, payment reconciliation/expiry and the nightly membership run.
-    generated/      Prisma client (generated; never edit).
-  prisma/
-    schema.prisma   Single schema (30+ models).
-    migrations/     Timestamped, forward-only SQL migrations (prisma migrate deploy).
-    seed.ts         Demo data for local development (refuses to run in production).
-  test/             Vitest against a real PostgreSQL (mlaz_test). No mocks of the database.
+server/src/
+  index.ts              Entry point: build app -> listen -> start jobs. Graceful shutdown, process-level error handling.
+  config.ts             Zod-validated environment, the only place settings are read. Refuses unsafe production starts.
+  platform/             Above every module: the composition root and the runtime.
+    modules.ts          The module list, and wireModules(): connects the ports (below).
+    http/               Fastify instance, plugins, request ids, error format, health probes, CSP reports, route scopes.
+    jobs/               scheduler.ts (when work runs) and leases.ts (one instance at a time, in Postgres).
+  shared/               Below every module, no business rules: db client and locks, errors, validation, dates, money,
+                        reference numbers, tokens, timeouts, CSV, PDF plumbing, the Actor type, HTTP helpers for routes.
+  modules/<module>/     One business area each (see backend-modules.md):
+    domain/             Pure rules and types. No I/O, no Fastify, no Prisma, no configuration.
+    application/        Use cases: a transaction, the rules, the audit entry, the queued message. No HTTP.
+    infrastructure/     Adapters to the outside world behind interfaces: gateways, the credit bureau, mail and SMS,
+                        file storage, PDF rendering, hand-written SQL (throttle counters).
+    presentation/       Routes: parse and validate input -> call a use case -> shape the response. No database.
+    index.ts            The module's public interface for other modules' use cases.
+    http.ts             Only identity (session guards) and documents (uploads, downloads): for other modules' routes.
+    module.ts           What the module hands the platform: its routes, per scope.
+  generated/            Prisma client (generated; never edit).
+server/prisma/          schema.prisma (single schema), forward-only migrations, seed.ts (refuses to run in production).
+server/test/            Vitest against a real PostgreSQL (mlaz_test), plus architecture and domain unit tests.
 ```
 
-### Module responsibilities
+A module has only the layers it needs: audit, administration and finance have no domain rules of their own, and
+nothing outside lending, payments, membership, documents, communications and identity talks to an external system.
 
-| Module | Owns | Public interface (used by routes/jobs) |
+The twelve modules: **identity** (users, sessions, sign-in protection, 2FA, staff, RBAC), **membership** (register,
+standing, dues, accreditation, certificates, MoF renewals, nightly rules, public directory), **applications** (applicant
+journey, maker/checker review), **payments** (gateway, settlement, bank transfers, reconciliation), **events**,
+**finance** (expenses), **lending** (loan books, credit checks), **communications** (outbox, announcements, broadcasts,
+resources), **documents** (uploads, storage, document records), **administration** (settings, tiers), **audit** (audit
+trail, member timelines) and **reporting** (dashboards, reports, search: read models over the others).
+
+### Layer rules (enforced)
+
+```
+presentation  ->  application  ->  domain
+                  application  ->  infrastructure  (adapters; infrastructure may use application types only)
+presentation  ->  shared/http, identity/http.ts, documents/http.ts
+any layer     ->  shared (domain: only dates, money, errors, tokens, actor)
+```
+
+- **Domain** is pure: no HTTP, no database client or generated Prisma code, no configuration, no other layer, no other
+  module. Prisma enum values the rules need are restated as string unions (they are structurally the same type).
+- **Application** never imports Fastify, a presentation layer or any `http.ts`: use cases take plain values and return
+  plain values, so routes, jobs, scripts and tests call them alike.
+- **Infrastructure** never imports HTTP or presentation, and imports only *types* from the application layer.
+- **Presentation** never touches the database client or infrastructure, and imports generated Prisma code for types
+  only. Business logic, transactions and audit entries live in use cases.
+- Only the documents module touches the file system (`node:fs`), where paths built from request data are confined.
+
+### Module rules (enforced)
+
+- Another module is reached only through its `index.ts` (from any layer) or its `http.ts` (from presentation only).
+  Nothing imports another module's internal files. An `index.ts` exports only what other code uses (a module nothing
+  depends on, such as reporting, exports nothing).
+- A `module.ts` is imported only by the platform. Modules never import the platform; the shared kernel imports neither.
+- **No import cycles** between files, and **no dependency cycles between modules**. The module graph counts business
+  dependencies (domain, application, infrastructure, `index.ts`); a route's use of the `identity/http.ts` guards is
+  request-pipeline wiring and is left out of that graph, but it stays in the file graph, which is also acyclic.
+- **One writer per table.** Every Prisma model has an owning module; only that module creates, updates or deletes its
+  rows, and other modules change them through the owner's public functions (for example `documents.recordDocument`,
+  `payments.linkToMember`, `payments.cancelForEvent`). Reads across modules are allowed; reporting only reads. Raw SQL
+  writes follow the same map (`LoginThrottle` by identity, `Counter` by the shared kernel, `JobLease` and the nightly
+  claim in `Setting` by the platform).
+- **Background jobs reuse use cases.** The scheduler decides when work runs and writes no business table.
+
+All of these are checked by `server/test/architecture.test.ts` (23 rules, no database needed), which runs in the API
+suite in CI and in the pre-push hook. Each failure lists the offending import or write.
+
+### Ports: dependencies turned around
+
+Two connections would otherwise make a lower module depend on a higher one. They are interfaces owned by the lower
+module and implemented by the higher one, connected once by `wireModules()` in `platform/modules.ts`:
+
+| Port | Defined by | Implemented by | Why |
+| --- | --- | --- | --- |
+| `SettlementHandler` (per payment purpose) | payments | applications (accredit on payment), membership (extend dues), events (confirm or release places) | Payments knows how money moves; the module that sells something knows what a payment for it does. Settlement used to import membership and events directly. |
+| `AudienceDirectory` | communications | membership | Broadcasts need member contacts, and membership needs the outbox. |
+
+`wireModules()` is idempotent and is called by `buildApp()`, by the job scheduler and by the test setup. A payment
+whose purpose has no handler throws instead of settling, so a wiring mistake can never mark money received without
+applying it.
+
+### Request scopes
+
+`platform/http/app.ts` mounts each module's routes into one of five scopes; the scope sets the prefix and the guard,
+so a module cannot forget either:
+
+| Scope | Prefix | Guard |
 | --- | --- | --- |
-| `services/accounts` | Sign-in, throttling and challenge mode, sessions and refresh rotation, invites and passwords, 2FA, staff users | `login`, `refresh`, `logout*`, `requestPasswordReset`, `setPassword`, `sendInvite`, MFA functions |
-| `services/applications` | Applicant journey, maker/checker review, duplicate checks, application fees | `submit`, `list`, `detail`, `recommend`, `approve`, `reject`, `returnToApplicant`, `recordOfflinePayment` |
-| `services/membership` | Standing rules, dues periods, accreditation, certificates, suspension, MoF renewals, nightly rules | `duesInfo`, `inGoodStanding`, `memberSummary`, `submitRenewal`, `verifyRenewal`, nightly jobs |
-| `services/members` | Secretariat member management and the member's own account actions | `list`, `detail`, `update`, `updateOwnProfile`, `startDuesPayment`, `recordOfflineDues`, ... |
-| `services/payments` | Payment creation, gateway initiation, settlement (exactly once), bank transfers, reconciliation, webhooks | `createPayment`, `initiate`, `settle`, `handleWebhook`, `reconcilePending`, `expireStale`, `paymentView` |
-| `services/notifications` | Message templates and the transactional outbox | `notify`, `T`, `processOutbox` |
-| `providers/*` | Talking to one external system; no database access | `PaymentProvider`, `CreditBureau`, mailer/SMS sender |
+| `auth` | `/api/auth` | None (per-route limits; cookie endpoints need same Origin and `x-mlaz-csrf`) |
+| `public` | `/api/public` | None (per-route limits) |
+| `portal` | `/api/portal` | `requireMember` (everything scoped to the caller's member record) |
+| `admin` | `/api/admin` | `requireStaff()`, plus a permission per route |
+| `webhooks` | `/api/webhooks` | Signature over timestamp and raw body |
 
-### Dependency rules (enforced)
-
-```
-routes   ->  services  ->  lib
-routes   ->  lib                 (parse, errors, guards, helpers)
-services ->  providers
-providers -> lib                 (config, errors, tokens)
-jobs     ->  services, lib
-```
-
-- `lib/` and `providers/` never import `services/`, `routes/` or `jobs/`.
-- `services/` never import `routes/`, `jobs/` or `fastify`: they take plain values, so routes, jobs, scripts and tests
-  can all call them.
-- `providers/` never touch the database client: services decide what to store.
-- There are no import cycles (verified with a full import-graph scan in October 2026).
-
-These rules are checked by `server/test/architecture.test.ts`, which runs in the API suite (CI and pre-push).
-
-Routes may read through `prisma` for a simple lookup (a list, a record by id, scoped to the caller). Anything that
-writes, enforces a rule, audits, or spans several steps belongs in a service.
+Every URL, method, request and response is unchanged by the modularisation.
 
 ---
 
@@ -96,12 +145,12 @@ Route (prefix /api)
 
 Handler
   1. parse(schema, input)  -> 400 VALIDATION_FAILED listing each field
-  2. service call          -> transactions, rules, audit live here
+  2. use case call         -> transactions, rules, audit live here
   3. reply                 -> plain view objects (Prisma Decimal sent as numbers)
 
-Error handler (app.ts)
+Error handler (platform/http/error-handler.ts)
   AppError                        -> { error: { code, message, details? } } with its status
-  ZodError (schema.parse in a service) -> same 400 VALIDATION_FAILED shape as parse()
+  ZodError (schema.parse in a use case) -> same 400 VALIDATION_FAILED shape as parse()
   Prisma P2002 / P2025            -> 409 DUPLICATE / 404 NOT_FOUND
   Fastify 4xx                     -> forwarded with its code
   anything else                   -> 500 { code: INTERNAL, message, requestId }; logged with the stack, never sent
@@ -141,12 +190,16 @@ codes; messages are for people and may change.
   simultaneous uses) ends every session of the user.
 - Session lifetime: idle timeout `SESSION_IDLE_TIMEOUT_HOURS` (24) and absolute lifetime
   `SESSION_ABSOLUTE_LIFETIME_HOURS` (168), fixed at sign-in. Refreshing never extends the absolute deadline
-  (`sessionDeadline` in `lib/auth.ts`, checked on every request and every refresh).
+  (`sessionDeadline` in `modules/identity/application/sessions.ts`, checked on every request and every refresh).
 - Password change, reset, deactivation, MFA reset and "sign out everywhere" invalidate every session.
 
 ### Two-factor (TOTP)
 
-- RFC 6238, 6 digits, 30-second step, ±1 step drift; each code usable once.
+- RFC 6238, 6 digits, 30-second step, ±1 step drift; each code usable once, in any session (the last used step is
+  stored per user and claimed atomically).
+- Attempts are counted so that guessing cannot lock the owner out: 5 per sign-in step (a step that succeeded or ran out
+  needs the password again, and two parallel completions give one session), 5 per 15 minutes per account from
+  unrecognised devices, separately per recognised device, and per session for the code that confirms a sensitive change.
 - Secret encrypted at rest with AES-256-GCM (`DATA_ENCRYPTION_KEY`); 8 hashed recovery codes.
 - `REQUIRE_STAFF_2FA=true` (mandatory in production) forces enrolment for all staff.
 
@@ -164,7 +217,7 @@ codes; messages are for people and may change.
   preview servers send the same script rules (`vite.config.js`). Tested in `test/csp.test.mjs`, including the built
   bundle.
 - Event handlers are `data-on-*` attributes dispatched by one delegated listener to registered functions only.
-- All server data is escaped with `esc()` before it reaches HTML (`src/ui.js`). `style-src` still allows inline styles
+- All server data is escaped with `esc()` before it reaches HTML (`src/core/html.js`). `style-src` still allows inline styles
   (avatar colours); low risk, noted as debt.
 - The access token lives in memory only; browser storage holds display details, never tokens.
 
@@ -172,7 +225,11 @@ codes; messages are for people and may change.
 
 ## Data and consistency
 
-- Writes that belong together run in one `prisma.$transaction`; services take a `Db`/`Tx` so they compose.
+- Writes that belong together run in one `prisma.$transaction`; use cases take a `Db`/`Tx` so they compose across
+  modules (a settlement handler runs inside the settlement transaction, with the payment row locked).
+- Session writes are atomic: starting a session writes the session and its first refresh token together; a refresh
+  retires the old token and writes its successor in one transaction; sign-out, "sign out everywhere" and a password
+  change each commit in one transaction.
 - `lockKey()` (`pg_advisory_xact_lock`) serialises work on shared things that have no single row to lock.
 - Payment settlement locks the payment row (`SELECT ... FOR UPDATE`) and applies an outcome exactly once.
 - Emails and SMS go through an **outbox** written in the same transaction as the change that caused them, delivered by
@@ -180,7 +237,7 @@ codes; messages are for people and may change.
 - Every change writes an audit entry in the same transaction (`audit()`); member-visible events also write
   `activity()`.
 - Network calls are never made inside a database transaction, with one documented exception: the credit-bureau lookup
-  (`services/lending.ts`) runs under an advisory lock with a 20-second transaction timeout, to enforce the daily quota.
+  (`modules/lending/application/credit-checks.ts`) runs under an advisory lock with a 20-second transaction timeout, to enforce the daily quota.
 
 ### Payment gateway failures
 
@@ -203,12 +260,15 @@ payment `ref` as its idempotency key), and waits at most `PAYMENT_INITIATE_TIMEO
   deploy, and instances still running the old code issue tokens the new code rejects. Deploy it with all instances
   replaced at once (not a rolling deploy), at a quiet time.
 - `20261028090000_query_indexes` adds indexes only (plus drops one index made redundant). Safe to apply online.
+- `20261103090000_hot_query_indexes` adds indexes for payment totals by date, a record's audit trail and a member's
+  pending renewal, and drops the index the trail one supersedes. Brief write locks while building (see
+  [OPERATIONS.md](OPERATIONS.md)).
 - `20261102090000_job_leases` adds the empty `JobLease` table. Safe for a rolling deploy: instances still on the old
   code ignore it (and keep reconciling on their own, as before, until they are replaced).
 
 ---
 
-## Background jobs (`jobs/runner.ts`)
+## Background jobs (`platform/jobs/scheduler.ts`)
 
 In the API process, on every instance, safe to run concurrently:
 
@@ -223,7 +283,7 @@ Each job is isolated: one failing (for example the mail server is down) is logge
 others. A tick never overlaps itself. On shutdown no new job starts and the one in progress finishes first.
 `JOBS_ENABLED=false` turns the scheduler off (tests, or a web-only instance).
 
-**Reconciliation lease** (`lib/leases.ts`, table `JobLease`). Postgres is the one store every instance shares (there is
+**Reconciliation lease** (`platform/jobs/leases.ts`, table `JobLease`). Postgres is the one store every instance shares (there is
 no Redis), so the lease lives there; an in-memory lock would not protect a second instance.
 
 - Acquired with one atomic upsert that only takes over an expired lease, so exactly one instance wins a race.
@@ -278,12 +338,23 @@ after 5 attempts. They are logged with the message id and the SMTP error, never 
 
 Probes are exempt from rate limiting. Both return 503 while the instance shuts down.
 
+`GET /health/status` (only when `MONITORING_TOKEN` is set; `Authorization: Bearer <token>`) reports operational
+checks for a monitoring service: database, overdue and failed outbox messages, gateway payments pending over 30
+minutes, the nightly run, this instance's background jobs, and each integration's state (`shared/integrations.ts`).
+Counts only, never personal data; 503 when a check fails. Thresholds and alerts: OPERATIONS.md.
+
 ### Logging
 
-- Structured JSON (pino) in production, pretty in development, silent in tests; level `LOG_LEVEL`.
-- Every line of a request carries its id (`reqId`), the same value returned in `x-request-id`.
+- One structured JSON (pino) logger for the process (`shared/log.ts`), pretty in development, silent in tests; level
+  `LOG_LEVEL`. Fastify uses it for the request log, and modules write through `log()`.
+- Every line of a request carries its id (`reqId`), the same value returned in `x-request-id`. Inside a request,
+  `log()` returns that request's logger (an AsyncLocalStorage set in a `preValidation` hook), so a use case's lines
+  carry the id without being handed a logger; in background jobs it returns the process logger.
+- Operational events carry an `event` field (`job.failed`, `outbox.gave_up`, `storage.failed`, `auth.sign_in_failed`,
+  `auth.refresh_token_reuse`…; the full list is in OPERATIONS.md) for monitoring to count and alert on.
 - Never logged: request bodies, headers, cookies, one-time tokens in URLs (redacted), emailed codes and links
-  (redacted in the outbox once sent). A pino `redact` list removes password and token fields as a safety net.
+  (redacted in the outbox once sent), recipients, NRCs, credit reports. A pino `redact` list removes credential,
+  session, MFA and identity fields as a safety net.
 - CSP violation reports from the UI are logged with origins and paths only (`POST /api/csp-report`).
 
 ### Database connections
@@ -308,6 +379,7 @@ No call to another service can hold a request or the background jobs indefinitel
 | S3 | `S3_OPERATION_TIMEOUT_SECONDS` | 120 | A whole operation with its retries, up to the start of a download's body |
 | S3 | `S3_MAX_ATTEMPTS` | 3 | Tries per operation |
 | Gateway | `PAYMENT_INITIATE_TIMEOUT_SECONDS` | 30 | Starting a payment, and each reconciliation status query |
+| Credit bureau | `BUREAU_TIMEOUT_SECONDS` | 10 (max 15) | One lookup, inside the member's credit-check lock; a timeout is a 503, neither recorded nor counted |
 
 - **SMTP.** A failed send is a `DeliveryError` whose message carries the SMTP code and reply, with credentials
   scrubbed. The outbox retries it.
@@ -322,6 +394,10 @@ No call to another service can hold a request or the background jobs indefinitel
 - `REQUIRE_STAFF_2FA=true`, `COOKIE_SECURE=true`, https `CORS_ORIGINS` and `PUBLIC_APP_URL` (enforced).
 - `TRUST_PROXY_HOPS` set explicitly to the number of proxies in front of the API (enforced).
 - `SMTP_URL` set (enforced); `STORAGE_DRIVER=s3` with a private bucket.
+- `SMS_DRIVER=none` (the log driver is refused) and `BUREAU_DRIVER=none` (the simulated bureau is refused unless
+  `ALLOW_SANDBOX_IN_PRODUCTION`) until real adapters exist (enforced).
+- `MONITORING_TOKEN` set and `/health/status` watched; migrations run once per release by the `migrate` image
+  (`server/Dockerfile`), never on start.
 - A real `PAYMENT_PROVIDER` (only the sandbox exists today; `ALLOW_SANDBOX_IN_PRODUCTION` only for staging).
 - Probes wired to `/health/live` and `/health`; the process manager's stop grace period at least 30 s.
 - Branch protection on `main` requiring the three CI checks (see QUALITY_CHECKS.md).
@@ -332,7 +408,12 @@ No call to another service can hold a request or the background jobs indefinitel
 
 | Interface | Drivers | Notes |
 | --- | --- | --- |
-| `Storage` (`lib/storage.ts`) | `local` (`STORAGE_DIR`), `s3` | Keys are server-generated; local paths confined to the root; S3 server-side encryption; streamed reads and writes. S3 calls are bounded (see "External service timeouts") |
-| `PaymentProvider` | `sandbox` | Implement the interface for a real gateway (see "Payment gateway failures") |
-| `CreditBureau` | `simulated` | Real bureau needs an adapter with timeouts and the bureau's consent terms |
-| Email / SMS (`providers/messaging.ts`) | SMTP via nodemailer, or log; SMS log only | A real SMS gateway goes behind `sendSms()` |
+| `Storage` (`modules/documents/infrastructure/storage.ts`) | `local` (`STORAGE_DIR`), `s3` | Keys are server-generated; local paths confined to the root; S3 server-side encryption; streamed reads and writes. S3 calls are bounded (see "External service timeouts") |
+| `PaymentProvider` (`modules/payments/infrastructure/gateways.ts`) | `sandbox` | Implement the interface for a real gateway (see "Payment gateway failures") |
+| `CreditBureau` (`modules/lending/infrastructure/bureau.ts`) | `simulated`, `none` | Simulated reports are flagged `simulated` to the member. A real bureau needs an adapter and the bureau's consent terms; the use case already bounds the call (`BUREAU_TIMEOUT_SECONDS`) |
+| Email / SMS (`modules/communications/infrastructure/messaging.ts`) | SMTP via nodemailer, or log; SMS `log` or `none` | With `SMS_DRIVER=none` no SMS is queued. A real SMS gateway goes behind `SmsSender` |
+
+`Storage` also lists its objects, for the daily integrity sweep (`modules/documents/application/integrity.ts`): files
+without a record are reported or, with `STORAGE_SWEEP=delete`, removed under safeguards; records without a file are
+reported. Each integration's state (`live`, `simulated`, `off`) comes from `shared/integrations.ts`; see OPERATIONS.md,
+"External integrations".

@@ -8,7 +8,7 @@ cannot be skipped.
 
 | Tool | Version | Why |
 | --- | --- | --- |
-| Node.js | 22.13 or newer (CI uses 24, see `.nvmrc`) | ESLint 10 and the API need it |
+| Node.js | 24 (see `.nvmrc`; CI and the production image use it), 22.13 at the minimum | ESLint 10 and the API need it |
 | npm | 10 or newer (ships with Node) | Lockfiles are version 3 |
 | Git | 2.31 or newer | Hooks, `git diff --check` |
 | Docker | any recent | The API tests need PostgreSQL (`server/docker-compose.yml`) |
@@ -42,7 +42,7 @@ and point `GITLEAKS_BIN` at it.
 | `npm run format` | Fixes trailing whitespace and final newlines. | — |
 | `npm run typecheck` | `tsc --noEmit` on the API (strict mode). The UI is plain JavaScript and is covered by ESLint. | — |
 | `npm test` | UI tests (`test/`): the Content-Security-Policy and the absence of inline script, in the source and, after `npm run build`, in the built bundle. | — |
-| `npm run test:server` | All API tests (`server/test/`, about 145 tests, ~3 min) against a real PostgreSQL, including the architecture test (`architecture.test.ts`: which layer may import which). | Test database |
+| `npm run test:server` | All API tests (`server/test/`, about 210 tests, ~3 min) against a real PostgreSQL, including the architecture test (`architecture.test.ts`: module boundaries, layers, cycles, table ownership) and the domain unit tests (`domain.test.ts`). | Test database |
 | `npm run test:security` | Only the security regression tests (see below). Handy while working on security fixes. | Test database |
 | `npm run build` | Production build of the UI (Vite) into `dist/`. | — |
 | `npm run build:server` | Compiles the API into `server/dist/`. | — |
@@ -70,7 +70,8 @@ These fail if a previously fixed vulnerability comes back:
 | Sessions: absolute lifetime, idle timeout, refresh-token rotation, reuse detection, expiry of old tokens | `server/test/phase3.test.ts` "R3", `server/test/security.test.ts` "sessions and cookies" |
 | Content-Security-Policy on the API and the UI, and that legitimate UI actions still work under it | `server/test/phase3.test.ts` "R4", `test/csp.test.mjs` |
 | Payment gateway unreachable or slow at initiation (late success still recorded, no lost payments) | `server/test/payments.test.ts` "gateway could not be reached", "times out a slow gateway" |
-| Dependency direction between layers (lib, providers, services, routes, jobs) | `server/test/architecture.test.ts` |
+| API module boundaries: layer direction inside each module, cross-module access through `index.ts` only, no file or module cycles, one writer module per table, file system access only in the documents module | `server/test/architecture.test.ts` |
+| UI feature boundaries: layer direction, access between features through `index.js` only, `fetch` only in the API client, no import cycles | `test/architecture.test.mjs` |
 | Health probes, request ids, no internals in 500 responses, job runner isolation and shutdown | `server/test/runtime.test.ts` |
 | Authorization, injection (control characters, markup in names, `__proto__`), sensitive data exposure, two-factor sign-in | `server/test/security.test.ts`, `server/test/remediation.test.ts` |
 
@@ -262,7 +263,7 @@ Every check can run locally. Only enforcement, meaning blocking the merge, is CI
   follows. To adopt Prettier later, do it in one dedicated commit: add Prettier, run it on everything, list that commit
   in `.git-blame-ignore-revs`, and switch `format`/`format:check` to `prettier --write .`/`prettier --check .`.
 - **HTML sinks in the UI are not linted.** The UI builds HTML from template strings and escapes data with `esc()`
-  (`src/ui.js`). `eslint-plugin-no-unsanitized` flags about 30 `innerHTML` assignments, because it cannot tell
+  (`src/core/html.js`). `eslint-plugin-no-unsanitized` flags about 30 `innerHTML` assignments, because it cannot tell
   `esc()`-built markup from raw data. The strict CSP (no inline or injected script, tested) limits what an injection
   could do. A worthwhile follow-up is an `html` tagged template that escapes by default, after which the rule can be
   turned on.
