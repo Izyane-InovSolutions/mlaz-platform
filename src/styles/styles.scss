@@ -25,6 +25,7 @@ $btn-font-weight: 500;
   background: linear-gradient(140deg, $primary, var(--brand-dark)); color: #fff; font-size: 1.15rem;
   &.lg { width: 56px; height: 56px; font-size: 1.6rem; border-radius: 14px; }
 }
+.brand-logo { width: 38px; height: 38px; flex-shrink: 0; }
 .brand-sub { font-size: .72rem; }
 
 // ---- Public site ----

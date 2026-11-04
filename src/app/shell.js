@@ -22,11 +22,11 @@ export function appLayout(session, page, inner) {
   return `
   <aside class="app-sidebar offcanvas-lg offcanvas-start" tabindex="-1" id="sidebar">
     <div class="offcanvas-header">
-      <a href="#/app" class="d-flex align-items-center gap-2 text-white"><span class="brand-mark">${icon('shield-check')}</span><span class="lh-sm"><span class="d-block fw-bold">MLAZ</span><span class="small opacity-75">${admin ? 'Secretariat console' : 'Member portal'}</span></span></a>
+      <a href="#/app" class="d-flex align-items-center gap-2 text-white"><img src="/mlaz-logo.png" alt="" class="brand-logo"><span class="lh-sm"><span class="d-block fw-bold">MLAZ</span><span class="small opacity-75">${admin ? 'Secretariat console' : 'Member portal'}</span></span></a>
       <button type="button" class="btn-close btn-close-white d-lg-none" data-bs-dismiss="offcanvas" data-bs-target="#sidebar" aria-label="Close"></button>
     </div>
     <div class="offcanvas-body">
-      <a href="#/app" class="sidebar-brand d-none d-lg-flex align-items-center gap-2 text-white"><span class="brand-mark">${icon('shield-check')}</span><span class="lh-sm"><span class="d-block fw-bold">MLAZ</span><span class="small opacity-75">${admin ? 'Secretariat console' : 'Member portal'}</span></span></a>
+      <a href="#/app" class="sidebar-brand d-none d-lg-flex align-items-center gap-2 text-white"><img src="/mlaz-logo.png" alt="" class="brand-logo"><span class="lh-sm"><span class="d-block fw-bold">MLAZ</span><span class="small opacity-75">${admin ? 'Secretariat console' : 'Member portal'}</span></span></a>
       <nav class="nav flex-column">${sidebar}</nav>
       <div class="mt-auto pt-4 small opacity-50 px-2"><span class="ms-lg-auto d-flex align-items-center gap-2">Platform by <a href="https://izyane.com" target="_blank" class="text-decoration-underline"><span class="footer-logo"><img src="/izyane-white.png" alt="iZyane"></span></a></span></div>
     </div>
