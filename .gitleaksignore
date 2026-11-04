@@ -1,0 +1,7 @@
+# Accepted gitleaks findings, by fingerprint (commit:file:rule:line). Each entry covers exactly one finding in one
+# commit; the same value anywhere else is still reported. Add an entry only for a reviewed false positive, with a reason.
+
+# E2E fixture passwords for accounts seeded into the throwaway mlaz_e2e database (reviewed 2026-11-04). Later commits
+# carry a `gitleaks:allow` comment on these lines; these entries cover the commit that introduced them.
+c2e9057ef02b7688b9895ee13d7db94e6dd6d593:e2e/specs/05-activation.spec.ts:generic-api-key:10
+c2e9057ef02b7688b9895ee13d7db94e6dd6d593:e2e/support/env.ts:generic-api-key:31

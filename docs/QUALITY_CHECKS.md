@@ -241,6 +241,8 @@ not undo a push.
 **If it is a false positive** (a test fixture, an example value, a hash):
 
 - For one line: add `gitleaks:allow` in a comment on that line, and explain it in the pull request.
+- For a finding in a commit that is already made (where amending is not an option): add its fingerprint
+  (`commit:file:rule:line`, printed by the scan) to `.gitleaksignore`, with a reason. It covers that one finding only.
 - For a recurring, clearly harmless pattern or a generated file: add a narrow allowlist entry to `.gitleaks.toml` with
   a `description`. Never exclude whole source folders.
 
