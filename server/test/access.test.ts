@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { prisma } from '../src/lib/db.js';
+import { prisma } from '../src/shared/db.js';
 import { STAFF, as, bearer, getApp, login, makeMember, refreshWith, resetDb } from './helpers.js';
 
 describe('authentication', () => {

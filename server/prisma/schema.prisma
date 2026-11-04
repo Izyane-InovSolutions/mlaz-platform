@@ -272,6 +272,7 @@ model MofRenewal {
   reviewNote   String?
 
   @@index([status])
+  @@index([memberId, status]) // the member's pending renewal, read on every portal page
 }
 
 // One row per paid membership period.
@@ -451,6 +452,7 @@ model Payment {
   @@index([memberId])
   @@index([applicationId])
   @@index([createdAt])
+  @@index([status, paidAt]) // collections by date: dashboard, finance summary, collections report
 }
 
 enum LineType {
@@ -685,6 +687,6 @@ model AuditLog {
   note       String    @default("")
   ip         String?
 
-  @@index([target])
+  @@index([target, at]) // a record's trail, newest first
   @@index([at])
 }

@@ -3,13 +3,13 @@
 import { randomUUID } from 'node:crypto';
 import PDFDocument from 'pdfkit';
 import type { DocumentKind, Role } from '../src/generated/prisma/client.js';
-import { hashPassword } from '../src/lib/auth.js';
-import { addDays, addYears, dateOnly, today } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
-import { storage } from '../src/lib/storage.js';
-import { sha256 } from '../src/lib/tokens.js';
-import { bureau } from '../src/providers/bureau.js';
-import { setSetting, SETTING_DEFAULTS } from '../src/services/settings.js';
+import { hashPassword } from '../src/modules/identity/index.js';
+import { addDays, addYears, dateOnly, today } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
+import { storage } from '../src/modules/documents/infrastructure/storage.js';
+import { sha256 } from '../src/shared/tokens.js';
+import { bureau } from '../src/modules/lending/infrastructure/bureau.js';
+import { setSetting, SETTING_DEFAULTS } from '../src/modules/administration/index.js';
 
 const PASSWORD = process.env.SEED_PASSWORD || 'Mlaz@2026demo';
 const ago = (hours: number) => new Date(Date.now() - hours * 3600e3);
@@ -176,7 +176,7 @@ async function main() {
   const firstNames = ['Mwila', 'Chanda', 'Bwalya', 'Natasha', 'Kondwani', 'Thandiwe', 'Musonda', 'Chileshe', 'Lubinda', 'Mutale', 'Namakau', 'Mapalo'];
   for (let i = 0; i < 12; i++) {
     const nrc = `${String(150000 + i * 13579).slice(0, 6)}/${String(11 + i * 3).padStart(2, '0')}/1`;
-    const rec = await bureau.lookup(nrc);
+    const rec = bureau ? await bureau.lookup(nrc) : null; // BUREAU_DRIVER=none: loans without scores
     const amount = 2000 + i * 1500;
     const status = i % 5 === 0 ? 'CLOSED' : rec && rec.score < 600 && i % 2 ? 'ARREARS' : 'CURRENT';
     await prisma.loan.create({

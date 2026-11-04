@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { runNightly } from '../src/jobs/runner.js';
-import { currentStep, totpAt } from '../src/lib/crypto.js';
-import { addDays, isoDate, today } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
-import { processOutbox } from '../src/services/notifications.js';
-import { reconcilePending } from '../src/services/payments.js';
+import { runNightly } from '../src/platform/jobs/scheduler.js';
+import { currentStep, totpAt } from '../src/modules/identity/domain/totp.js';
+import { addDays, isoDate, today } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
+import { processOutbox } from '../src/modules/communications/index.js';
+import { reconcilePending } from '../src/modules/payments/index.js';
 import { PASSWORD, PDF, STAFF, as, bearer, form, getApp, login, makeMember, refreshWith, resetDb, tokenFromEmail } from './helpers.js';
 
 const post = async (url: string, payload: object, headers: Record<string, string> = {}) => (await getApp()).inject({ method: 'POST', url: `/api${url}`, payload, headers });

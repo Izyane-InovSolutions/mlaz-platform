@@ -1,11 +1,11 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config.js';
-import { addDays, addYears, isoDate, today } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
-import { hmac } from '../src/lib/tokens.js';
-import { gateway } from '../src/providers/payments.js';
-import { UNREACHABLE_REASON, reconcilePending, settle } from '../src/services/payments.js';
-import { SYSTEM } from '../src/lib/audit.js';
+import { addDays, addYears, isoDate, today } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
+import { hmac } from '../src/shared/tokens.js';
+import { gateway } from '../src/modules/payments/infrastructure/gateways.js';
+import { UNREACHABLE_REASON, reconcilePending, settle } from '../src/modules/payments/index.js';
+import { SYSTEM } from '../src/shared/actor.js';
 import { PDF, STAFF, as, form, getApp, makeMember, resetDb } from './helpers.js';
 
 describe('dues payments', () => {

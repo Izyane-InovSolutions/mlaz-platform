@@ -1,7 +1,7 @@
-import { buildApp } from './app.js';
+import { buildApp } from './platform/http/app.js';
 import { config } from './config.js';
-import { prisma } from './lib/db.js';
-import { startJobs } from './jobs/runner.js';
+import { prisma } from './shared/db.js';
+import { startJobs } from './platform/jobs/scheduler.js';
 
 // Longer than the jobs and requests in progress normally need, shorter than a typical orchestrator's kill grace period.
 const SHUTDOWN_TIMEOUT_MS = 25_000;

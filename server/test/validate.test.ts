@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { s } from '../src/lib/validate.js';
-import { submitSchema } from '../src/services/applications.js';
+import { s } from '../src/shared/validation.js';
+import { submitSchema } from '../src/modules/applications/index.js';
 
 describe('name fields', () => {
   it('accept real business and person names', () => {

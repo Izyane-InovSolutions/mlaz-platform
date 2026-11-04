@@ -1,14 +1,14 @@
 // Background job reliability: one reconciliation at a time across instances (D9), and dues/MoF reminders that survive
 // missed or failed nights without ever going out twice (D6). Against the real database, like the other API tests.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runNightly, runReconcile } from '../src/jobs/runner.js';
-import { SYSTEM } from '../src/lib/audit.js';
-import { addDays, addYears, isoDate, today, todayIso } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
-import { acquireLease } from '../src/lib/leases.js';
-import { gateway } from '../src/providers/payments.js';
-import { dueReminder, sendReminders } from '../src/services/membership.js';
-import { reconcilePending, settle } from '../src/services/payments.js';
+import { runNightly, runReconcile } from '../src/platform/jobs/scheduler.js';
+import { SYSTEM } from '../src/shared/actor.js';
+import { addDays, addYears, isoDate, today, todayIso } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
+import { acquireLease } from '../src/platform/jobs/leases.js';
+import { gateway } from '../src/modules/payments/infrastructure/gateways.js';
+import { dueReminder, sendReminders } from '../src/modules/membership/index.js';
+import { reconcilePending, settle } from '../src/modules/payments/index.js';
 import { as, makeMember, resetDb } from './helpers.js';
 
 afterEach(() => {

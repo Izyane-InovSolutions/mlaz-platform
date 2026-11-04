@@ -8,11 +8,12 @@ import path from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { config } from '../src/config.js';
-import { prisma } from '../src/lib/db.js';
-import { AppError } from '../src/lib/errors.js';
-import { S3Storage, isRetryable } from '../src/lib/storage.js';
-import { DeliveryError, SmtpMailer, mailer, sms } from '../src/providers/messaging.js';
-import { processOutbox } from '../src/services/notifications.js';
+import { prisma } from '../src/shared/db.js';
+import { AppError } from '../src/shared/errors.js';
+import { rootLogger } from '../src/shared/log.js';
+import { S3Storage, isRetryable } from '../src/modules/documents/infrastructure/storage.js';
+import { DeliveryError, SmtpMailer, mailer, sms } from '../src/modules/communications/infrastructure/messaging.js';
+import { processOutbox } from '../src/modules/communications/index.js';
 import { resetDb } from './helpers.js';
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -123,7 +124,7 @@ describe('notification outbox with a slow or failing mail server', () => {
     await prisma.notification.deleteMany();
     await queue(3, 'SMS');
     // One send outlasts the whole budget, so only the first may start, however fast or slow this machine is.
-    vi.spyOn(sms, 'send').mockImplementation(() => new Promise(r => setTimeout(r, 1_500)));
+    vi.spyOn(sms!, 'send').mockImplementation(() => new Promise(r => setTimeout(r, 1_500))); // SMS_DRIVER=log in tests
     expect(await processOutbox(25, 1_000)).toBe(1);
     const rows = await prisma.notification.findMany({ orderBy: { createdAt: 'asc' } });
     expect(rows.filter(n => n.status === 'SENT')).toHaveLength(1);
@@ -145,13 +146,14 @@ describe('notification outbox with a slow or failing mail server', () => {
     await prisma.notification.deleteMany();
     await queue(1, 'EMAIL');
     vi.spyOn(mailer, 'send').mockRejectedValue(new DeliveryError('TIMEOUT', 'SMTP TIMEOUT: SMTP send timed out'));
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = vi.spyOn(rootLogger, 'error');
     expect(await processOutbox()).toBe(0);
     const n = await prisma.notification.findFirstOrThrow();
     expect(n).toMatchObject({ status: 'PENDING', attempts: 1, lastError: 'SMTP TIMEOUT: SMTP send timed out' });
     expect(n.sendAfter.getTime()).toBeGreaterThan(Date.now() + 60e3); // retried later, per the existing policy
-    const line = String(log.mock.calls[0][0]);
+    const line = JSON.stringify(log.mock.calls[0]);
     expect(line).toContain(n.id);
+    expect(line).toContain('outbox.send_failed');
     expect(line).not.toContain('EMAIL-0@example.zm');
     expect(line).not.toContain('message 0');
 
@@ -252,11 +254,12 @@ describe('S3 timeouts and retries', () => {
     expect(missing.requests).toHaveLength(1);
 
     const denied = await s3Server((_req, res) => s3Error(res, 403, 'AccessDenied'));
-    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const log = vi.spyOn(rootLogger, 'error');
     const { err } = await failure(() => denied.storage().remove('documents/a.pdf'));
     expect(err).toMatchObject({ status: 503, code: 'STORAGE_UNAVAILABLE' });
     expect(denied.requests).toHaveLength(1);
-    expect(String(log.mock.calls[0][0])).not.toMatch(/AKIAFAKEKEY0001|fake-secret-value/); // no credentials in the log line
+    expect(JSON.stringify(log.mock.calls[0])).toContain('storage.failed');
+    expect(JSON.stringify(log.mock.calls[0])).not.toMatch(/AKIAFAKEKEY0001|fake-secret-value/); // no credentials in the log line
   });
 
   it('streams a download whose body takes longer than the operation cap, as long as it keeps flowing', async () => {

@@ -60,6 +60,10 @@ const schema = z.object({
   S3_SOCKET_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(30),
   S3_OPERATION_TIMEOUT_SECONDS: z.coerce.number().int().min(5).max(900).default(120),
   S3_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(5).default(3),
+  // Daily comparison of stored files with document records: `report` logs files without a record (and records without
+  // a file), `delete` also removes such files once they are older than STORAGE_ORPHAN_GRACE_HOURS. See OPERATIONS.md.
+  STORAGE_SWEEP: z.enum(['off', 'report', 'delete']).default('report'),
+  STORAGE_ORPHAN_GRACE_HOURS: z.coerce.number().int().min(2).max(720).default(24),
 
   SMTP_URL: optional,
   // Time to connect and receive the server's greeting, longest silence once connected, and a cap on one whole message.
@@ -68,7 +72,9 @@ const schema = z.object({
   SMTP_SOCKET_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(300).default(30),
   SMTP_SEND_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(240).default(60),
   EMAIL_FROM: z.string().default('MLAZ Secretariat <no-reply@mlaz.org.zm>'),
-  SMS_DRIVER: z.enum(['log']).default('log'),
+  // `log` prints messages instead of sending them (development only: refused in production); `none` sends no SMS.
+  // No SMS gateway adapter exists yet (see docs/OPERATIONS.md, "External integrations").
+  SMS_DRIVER: z.enum(['log', 'none']).default('log'),
   SMS_SENDER_ID: z.string().default('MLAZ'),
 
   PAYMENT_PROVIDER: z.enum(['sandbox']).default('sandbox'),
@@ -79,10 +85,16 @@ const schema = z.object({
   PAYMENT_INITIATE_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(120).default(30),
   WEBHOOK_SECRET: z.string().min(8),
 
-  BUREAU_DRIVER: z.enum(['simulated']).default('simulated'),
+  // `simulated` invents a credit report per NRC (refused in production unless ALLOW_SANDBOX_IN_PRODUCTION=true);
+  // `none` turns credit checks off. No real bureau adapter exists yet.
+  BUREAU_DRIVER: z.enum(['simulated', 'none']).default('simulated'),
+  // Longest wait for one bureau lookup. It runs while the member's credit-check lock is held, so it stays short.
+  BUREAU_TIMEOUT_SECONDS: z.coerce.number().int().min(1).max(15).default(10),
   CREDIT_CHECKS_PER_DAY: z.coerce.number().int().positive().default(50),
 
   JOBS_ENABLED: flag(true),
+  // Bearer token for GET /health/status (operational checks for a monitoring service). Empty = endpoint disabled.
+  MONITORING_TOKEN: z.union([z.literal(''), z.string().min(32, 'MONITORING_TOKEN must be at least 32 characters')]).default(''),
   ALLOW_SANDBOX_IN_PRODUCTION: flag(false),
 }).refine(c => c.SESSION_ABSOLUTE_LIFETIME_HOURS >= c.SESSION_IDLE_TIMEOUT_HOURS, {
   path: ['SESSION_ABSOLUTE_LIFETIME_HOURS'], message: 'must be at least SESSION_IDLE_TIMEOUT_HOURS',
@@ -110,6 +122,10 @@ export function productionProblems(c: Config, env: Record<string, string | undef
   for (const k of secrets) if (/change-me|example|secret/i.test(c[k]) || new Set(c[k]).size < 12) problems.push(`${k} looks like a placeholder or low-entropy value`);
   if (new Set(secrets.map(k => c[k])).size < secrets.length) problems.push('JWT_SECRET, WEBHOOK_SECRET and DATA_ENCRYPTION_KEY must all be different');
   if (c.PAYMENT_PROVIDER === 'sandbox' && !c.ALLOW_SANDBOX_IN_PRODUCTION) problems.push('PAYMENT_PROVIDER=sandbox collects no real money (set ALLOW_SANDBOX_IN_PRODUCTION=true only for a staging site)');
+  // Lenders would make lending decisions on invented credit reports.
+  if (c.BUREAU_DRIVER === 'simulated' && !c.ALLOW_SANDBOX_IN_PRODUCTION) problems.push('BUREAU_DRIVER=simulated shows invented credit reports; set BUREAU_DRIVER=none until a real bureau is connected (or ALLOW_SANDBOX_IN_PRODUCTION=true for a staging site)');
+  // The log driver delivers nothing and writes phone numbers and message text to the log.
+  if (c.SMS_DRIVER === 'log') problems.push('SMS_DRIVER=log only writes messages to the log; set SMS_DRIVER=none until an SMS gateway is connected');
   if (!secure) problems.push('COOKIE_SECURE must be true in production (serve over HTTPS)');
   if (c.CORS_ORIGINS.some(o => !o.startsWith('https://'))) problems.push('CORS_ORIGINS must all be https:// origins in production');
   if (!c.PUBLIC_APP_URL.startsWith('https://')) problems.push('PUBLIC_APP_URL must be https:// in production');
