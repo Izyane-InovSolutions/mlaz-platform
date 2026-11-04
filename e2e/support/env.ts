@@ -28,7 +28,7 @@ export const DATABASE_URL = process.env.E2E_DATABASE_URL || 'postgresql://mlaz:m
 if (!/\/mlaz_e2e(\?|$)/.test(DATABASE_URL)) throw new Error(`E2E_DATABASE_URL must name the mlaz_e2e database, got ${DATABASE_URL}`);
 
 /** The password of every fixture account. */
-export const PASSWORD = 'E2e-Fixture-Pass-2026';
+export const PASSWORD = 'E2e-Fixture-Pass-2026'; // gitleaks:allow: fixture password, only for accounts seeded into the throwaway mlaz_e2e database
 
 /** Rules out the dev and test sessions, mailers and buckets. Every variable in server/.env is overridden here. */
 export const API_ENV: Record<string, string> = {

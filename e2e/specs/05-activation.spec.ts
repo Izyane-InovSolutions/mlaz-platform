@@ -7,7 +7,7 @@ import { STAFF } from '../support/data.ts';
 import { query, setPasswordLink, trackingLink } from '../support/db.ts';
 import { dialog, field, signInAndWait } from '../support/ui.ts';
 
-const NEW_PASSWORD = 'Copper-Lantern-4821';
+const NEW_PASSWORD = 'Copper-Lantern-4821'; // gitleaks:allow: test value an e2e fixture account sets in the throwaway mlaz_e2e database
 
 async function expectPdf(download: Download) {
   expect(download.suggestedFilename()).toMatch(/\.pdf$/);
