@@ -132,3 +132,28 @@ checks answer 503) instead of pretending. Simulated credit reports are labelled 
 
 **Why.** The log SMS driver marked messages sent that were never delivered, and wrote phone numbers into the log; the
 simulated bureau would have shown lenders invented credit reports on a live site. Both looked like working features.
+
+## 14. Node 24 everywhere (November 2026)
+
+**Decision.** The API and migration images (`server/Dockerfile`) and the backup runner (`ops/backup/Dockerfile`) use
+Node 24, the version in `.nvmrc` that CI and development already used. Previously the images used Node 22.
+
+**Why.** Tests ran on 24 while production would have run on 22, so a difference between them would only have appeared
+in production. Node 24 is the Active LTS line, and every dependency supports it (the strictest `engines` range is
+`^22.20 || ^24.12 || >=25`). No host has been chosen yet, so the image is the runtime and nothing outside the
+repository constrains the choice. Verified on 4 November 2026: all three images build, the migrate image applies every
+migration, and the API image serves its health probes and refuses unsafe production settings.
+
+## 15. `staging` and `main` are recorded as merged, not merged file by file (November 2026)
+
+**Decision.** `staging` and `main` are reconciled with `preview` by `git merge -s ours` on side branches
+(`release/staging-sync`, `release/main-sync`). Each merge commit keeps `preview`'s tree and makes the other branch an
+ancestor, so `staging` and `main` can later be fast-forwarded by pull request. What those branches had that was still
+needed (the MLAZ logo and the `.env.*.local` ignore rule) was first carried into `preview` as an ordinary commit
+(`222d7b5`). Details per file: [OPERATIONS.md](OPERATIONS.md), "Environments and branches".
+
+**Why.** Every conflicting file was the logo (now on `preview`) or the October prototype's Supabase persistence layer,
+which gave the browser direct access to every record and is replaced by the API. A plain merge would have auto-merged
+parts of it back in (the Supabase dependency, a second copy of the logo links). Force-pushing `preview` over the
+branches would have thrown away their history. With `-s ours`, nothing is rewritten, every old commit stays reachable,
+and the old files can still be recovered from history if anything turns out to be missing.
