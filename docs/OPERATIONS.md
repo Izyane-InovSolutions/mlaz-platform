@@ -26,24 +26,37 @@ below.
 
 | Branch | What it holds (November 2026) |
 | --- | --- |
-| `preview` | The current platform: UI plus the API in `server/` (modular monolith). The November refactor and this production-readiness work are **not committed yet** (working tree only). |
+| `preview` | The current platform: UI plus the API in `server/` (modular monolith). The November refactor, this production-readiness work and the MLAZ logo are committed and pushed (4 November 2026, up to `222d7b5`). |
 | `feat/backend` | An older line of the API; `preview` contains all of it. |
-| `staging` | The October prototype UI (`src/*.js`, no `server/`), plus a Supabase experiment (`ea4b608`) and an MLAZ logo rebrand (`ab3709e`, `9910ed5`, `f69ef64`). 5 commits that `preview` does not have. |
-| `main` | `staging`'s history, then a revert of the API merge (`269bc9d`), the logo again (`9a447d1`) and the Supabase code removed again (`fe9f566`). `preview` already contains the revert commit. |
+| `staging` | **Unchanged so far** (`73e2392`): the October prototype UI (`src/*.js`, no `server/`), plus a Supabase experiment (`ea4b608`) and an MLAZ logo rebrand (`ab3709e`, `9910ed5`, `f69ef64`). |
+| `main` | **Unchanged so far** (`fe9f566`): `staging`'s history, then a revert of the API merge (`269bc9d`), the logo again (`9a447d1`) and the Supabase code removed again (`fe9f566`). `preview` already contains the revert commit. |
+| `release/staging-sync` | `preview` plus a merge commit (`e03ab3a`) recording `staging` as merged. Its tree is identical to `preview`'s. Ready for a pull request into `staging`. |
+| `release/main-sync` | `release/staging-sync` plus a merge commit (`051d162`) recording `main` as merged. Its tree is identical to `preview`'s. Ready for a pull request into `main`. |
 
-Common ancestor of `preview` and `staging`: `73face4` (12 October 2026). A trial merge (`git merge-tree`, which
-changes nothing) of `origin/staging` into `origin/preview` conflicts in 9 files (`.env.example`, `.gitignore`,
-`README.md`, `package-lock.json`, `src/admin.js`, `src/main.js`, `src/public.js`, `src/store.js`, `src/ui.js`), and
-`origin/main` into `origin/preview` in 4 (`.gitignore`, `README.md`, `src/main.js`, `src/ui.js`). Once the refactor is
-committed these become modify/delete conflicts, because `preview` deletes those UI files.
+Common ancestor of `preview` and `staging`: `73face4` (12 October 2026). The trial merge (`git merge-tree`, which
+changes nothing) before the November work was committed conflicted in 9 files (`.env.example`, `.gitignore`,
+`README.md`, `package-lock.json`, `src/admin.js`, `src/main.js`, `src/public.js`, `src/store.js`, `src/ui.js`) for
+`staging`, and in 4 for `main` (`.gitignore`, `README.md`, `src/main.js`, `src/ui.js`). Against `222d7b5`, `staging`
+conflicts in 8 (`.gitignore` no longer: `preview` has the same `.env.*.local` rule) and `main` in 4 (`README.md`,
+`src/main.js`, `src/public.js`, `src/ui.js`). A plain merge would also auto-merge the Supabase dependency into
+`package.json` and a second copy of the logo links and `.brand-logo` rule, which is why it is not used.
 
-**What `staging` has that `preview` lacks.** Only two things are worth keeping:
+**What `staging` and `main` have that `preview` lacked, and where it went** (reviewed file by file, 4 November 2026):
 
-- **The MLAZ logo:** `public/mlaz-logo.png` (the `f69ef64` version), used as favicon and apple-touch icon, and in place
-  of the shield icon in the public header, the footer and the console sidebar, sized by `.brand-logo { width: 38px;
-  height: 38px; flex-shrink: 0; }`. `favicon.svg` was removed.
-- **Nothing else.** The Supabase experiment (direct database access from the browser) is replaced by the API; its schema
-  and client must not come back. The `src/*.js` prototype files no longer exist in `preview`.
+- **The MLAZ logo (carried over, `222d7b5`):** `public/mlaz-logo.png` (the `f69ef64` file, identical on `staging` and
+  `main`) is the favicon and apple-touch icon, and replaces the shield icon in the public header and footer
+  (`src/features/public/layout/layout.js`) and the console sidebar (`src/app/shell.js`), sized by `.brand-logo`
+  (38px). `favicon.svg` is removed. It uses `alt=""`, because the visible text next to it already names MLAZ.
+- **`.gitignore` `.env.*.local` (carried over, `222d7b5`).**
+- **Superseded, not carried over:** the Supabase persistence layer (`src/store.js`, the live-refresh and reset code in
+  `src/ui.js` and `src/admin.js`, its `.env.example`, the `@supabase/supabase-js` dependency and the README setup
+  steps), which gave the browser direct access to every record. The API replaces it, and it must not come back. Also
+  the loading spinner and duplicate-submit guard in `src/main.js` and `src/public.js` (the new UI disables the submit
+  button while the API call runs), and `main`'s random proof-of-payment key in `src/ui.js` (the API names stored
+  files with `randomUUID`).
+- **Open question:** `staging` and `main` change the README to "Deploy to Netlify". `preview`'s security headers and
+  CSP are in `vercel.json`, which only Vercel applies. Confirm the host (see "Vercel" below); on Netlify the headers
+  must be ported first.
 
 **Can `preview` replace `staging`?** Yes, once the logo is carried over: every other `staging` change is superseded.
 But `staging` is a different architecture: the API, a database and the API's environment variables must exist before a
@@ -52,31 +65,26 @@ But `staging` is a different architecture: the API, a database and the API's env
 **Recommended branch strategy.**
 `main` holds production (protected, CI required). `staging` holds the next release, deployed to the staging site, and
 receives `preview` by pull request. Feature branches are merged into `preview` (or straight into `staging`) by pull
-request. Nothing is force-pushed or deleted. The steps below are a plan only: they need approval, and none has been run.
+request. Nothing is force-pushed or deleted, and no commit is rewritten.
 
-1. Commit the current `preview` working tree (the refactor plus this work) and push `preview`.
-2. Carry the logo over on a branch from `preview`:
-   ```bash
-   git fetch origin
-   git switch -c chore/mlaz-logo origin/preview
-   git checkout f69ef64 -- public/mlaz-logo.png
-   git rm public/favicon.svg
-   # then, by hand: index.html icon links; brand markup in src/features/public/layout/layout.js and src/app/shell.js;
-   # .brand-logo in src/styles/styles.scss (see the bullet above). Run npm run check:full and the E2E suite.
-   ```
-   Open a pull request into `preview`.
-3. Record `staging` as merged without taking its tree, on a branch from the updated `preview`:
-   ```bash
-   git switch -c release/staging-sync origin/preview
-   git merge -s ours origin/staging -m "Merge staging: superseded by the API architecture (logo carried over in chore/mlaz-logo)"
-   ```
-   `-s ours` keeps `preview`'s files exactly and makes `staging` an ancestor, so the next step is a fast-forward, not
-   a force-push. Open a pull request from `release/staging-sync` into `staging`. Its diff is the whole new
-   architecture; review it as such. Merging it fast-forwards `staging`.
-4. Do the same for `main` when production is ready (`git merge -s ours origin/main` on a branch from `staging`; pull
-   request into `main`). `main`'s own commits are the logo and the Supabase removal, both already accounted for.
-5. Before merging into `staging` or `main`, check the Vercel project (below) so the merge does not deploy a UI that
-   has no API behind it.
+1. **Done (4 November 2026).** The `preview` working tree was backed up outside the repository, committed in logical
+   commits and pushed normally (`c782bc1..d9f8edc`).
+2. **Done (4 November 2026).** The logo was carried over and pushed to `preview` (`222d7b5`), after
+   `npm run check:full` and the E2E suite (dev and production builds) passed.
+3. **Prepared; Decision needed (owner approval).** `release/staging-sync` is pushed: `git merge -s ours origin/staging` on a branch
+   from `preview`. `-s ours` keeps `preview`'s files exactly and makes `staging` an ancestor, so merging it fast-forwards
+   `staging` without a force-push. `staging`'s commits stay in history. **Next:** check the Vercel project (step 5),
+   then open a pull request from `release/staging-sync` into `staging`. Its diff is the whole new architecture; review
+   it as such.
+4. **Prepared; Decision needed (owner approval).** `release/main-sync` is pushed: `git merge -s ours origin/main` on a branch from
+   `release/staging-sync`, so `main` can also fast-forward. Open its pull request into `main` only when production is
+   ready (API, database and configuration in place). `main`'s own commits are the logo and the Supabase removal, both
+   already accounted for.
+5. **Not done.** Before merging into `staging` or `main`, check the Vercel project (below), so the merge does not
+   deploy a UI with no API behind it, and settle the Netlify question above.
+
+If `preview` moves on before the pull requests are merged, merge `preview` into each `release/*-sync` branch first.
+It merges cleanly, because their trees match `preview`'s.
 
 **Vercel (not visible from the repository; check in the Vercel dashboard).** Which branch is the Production Branch;
 whether `staging` and `preview` get preview deployments; and the environment variables per environment
@@ -510,6 +518,6 @@ weeks in production, review the reported keys, then switch to `delete`.
 | Credit bureau | Bureau adapter and consent terms | **Not implemented; Decision needed** |
 | ZRA TPIN | Lookup adapter | **Not implemented; Decision needed** |
 | Payments | Real gateway adapter | Out of scope here; still **Not implemented** (the sandbox collects no money) |
-| Branches | Commit `preview`, carry the logo over, sync `staging` and `main` by pull request | **Decision needed** (plan above) |
+| Branches | `preview` committed and pushed, logo carried over (**Done**); `release/staging-sync` and `release/main-sync` pushed (**Done**); pull requests into `staging` and `main` | **Decision needed** (owner approval, after the Vercel/Netlify check) |
 | Repository | Branch protection on `main` and `staging` requiring the CI checks | **Manual setup** (GitHub settings) |
 | Runtime | Node 24 everywhere: `.nvmrc`, CI, `server/Dockerfile`, `ops/backup/Dockerfile` | **Done** |
