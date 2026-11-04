@@ -9,4 +9,3 @@ CREATE INDEX "MofRenewal_memberId_status_idx" ON "MofRenewal"("memberId", "statu
 
 -- CreateIndex
 CREATE INDEX "Payment_status_paidAt_idx" ON "Payment"("status", "paidAt");
-
