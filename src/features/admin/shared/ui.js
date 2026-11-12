@@ -7,7 +7,17 @@ import { payBadge, stageBadge } from '../../common/index.js';
 const tomorrow = () => new Date(Date.now() + 864e5).toISOString().slice(0, 10);
 const appBadge = a => stageBadge(a.displayStage === 'AWAITING_APPROVAL' ? 'mof_approval' : lower(a.stage));
 const crumb = (href, label, current) => `<li class="breadcrumb-item"><a href="#/app/${encodeURIComponent(href)}">${label}</a></li><li class="breadcrumb-item active">${esc(current)}</li>`;
-const searchBox = (value, fn, ph) => `<form class="mb-3 mw-420" ${on('submit', 'runSearch', fn, EL)}><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" type="search" name="q" value="${esc(value)}" aria-label="${ph}" placeholder="${ph}">${value ? `<button class="btn btn-outline-secondary" type="button" ${on('click', fn, '')}>Clear</button>` : ''}</div></form>`;
+const searchBox = (value, fn, ph, cls = 'mb-3 mw-420') => `<form class="${cls}" ${on('submit', 'runSearch', fn, EL)}><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" type="search" name="q" value="${esc(value)}" aria-label="${ph}" placeholder="${ph}">${value ? `<button class="btn btn-outline-secondary" type="button" ${on('click', fn, '')}>Clear</button>` : ''}</div></form>`;
+// A list page's controls on one row, drawn as the table card's header (pass it as tableCard's `header`): the filters
+// in a dropdown on the left, the search box on the far right.
+const filterMenu = (items, active, fn, label) => {
+  const current = (items.find(([k]) => k === active) || items[0])[1];
+  return `<div class="dropdown"><button class="btn btn-outline-secondary dropdown-toggle d-flex align-items-center gap-2" type="button" data-bs-toggle="dropdown" aria-expanded="false">${icon('funnel')}<span><span class="text-body-secondary">${label}:</span> ${current}</span></button>
+    <ul class="dropdown-menu shadow-sm">${items.map(([k, l]) => `<li><a class="dropdown-item d-flex align-items-center ${active === k ? 'active' : ''}" href="#" role="button" ${active === k ? 'aria-current="true"' : ''} ${on('click', fn, k)}>${l}${active === k ? icon('check2', 'ms-auto ps-3') : ''}</a></li>`).join('')}</ul></div>`;
+};
+const listToolbar = ({ filters, active, filterFn, label = 'Filter', q, searchFn, placeholder }) => `<div class="card-header bg-white d-flex flex-wrap align-items-center gap-2 py-2">
+  ${filterMenu(filters, active, filterFn, label)}
+  ${searchBox(q, searchFn, placeholder, 'ms-auto flex-grow-1 mw-420')}</div>`;
 // The search boxes above name one of these setters (registered by the list pages); the form gives the query. Only
 // these names can be run this way.
 const SEARCH_SETTERS = ['setMQuery', 'setAQuery', 'setPQuery', 'setCQuery'];
@@ -48,6 +58,6 @@ function paymentRow(p, { payer = true } = {}) {
 const offlineFields = (refLabel = 'Bank reference or receipt number') => `<div class="row g-3"><div class="col-6"><label class="form-label small fw-medium">Method</label><select class="form-select" name="method"><option value="BANK_TRANSFER">Bank transfer</option><option value="CASH">Cash</option></select></div>
   <div class="col-6"><label class="form-label small fw-medium">${refLabel}</label><input class="form-control" name="reference" required placeholder="e.g. FT26285ABC12"><div class="invalid-feedback">Required.</div></div></div>`;
 
-export { DOC_KIND, appBadge, auditCard, crumb, offlineFields, paymentRow, searchBox, tomorrow };
+export { DOC_KIND, appBadge, auditCard, crumb, listToolbar, offlineFields, paymentRow, searchBox, tomorrow };
 
 expose({ runSearch, setAuditPage });

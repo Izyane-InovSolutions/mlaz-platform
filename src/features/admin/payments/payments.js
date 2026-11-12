@@ -2,10 +2,10 @@ import { api } from '../../../core/api/client.js';
 import { can } from '../../../core/auth/permissions.js';
 import { EL, expose, on } from '../../../core/events.js';
 import { rerender } from '../../../core/navigation.js';
-import { K, KM, asyncModal, busy, done, empty, esc, fail, fmtDate, fmtDateTime, icon, lower, modal, note, pageHeader, pager, pills, safeFilename, safeUrl, statCard, tableCard, today } from '../../../shared/ui/index.js';
+import { K, KM, asyncModal, busy, done, empty, esc, fail, fmtDate, fmtDateTime, icon, lower, modal, note, pageHeader, pager, safeFilename, safeUrl, statCard, tableCard, today } from '../../../shared/ui/index.js';
 import { documentPreview, documentUrl, mountPreview, payBadge } from '../../common/index.js';
 import { adm, qs } from '../shared/api.js';
-import { paymentRow, searchBox } from '../shared/ui.js';
+import { listToolbar, paymentRow } from '../shared/ui.js';
 
 /* ================= PAYMENTS & EXPENSES ================= */
 const PTABS = [['', 'All'], ['review', 'Awaiting review'], ['PENDING', 'Pending'], ['SUCCESS', 'Successful'], ['FAILED', 'Failed']];
@@ -23,11 +23,6 @@ export async function payments() {
     canExp ? adm('/expenses') : null,
   ]);
   EXPENSES = exp?.items || [];
-  const feeCard = `<div class="card ${canExp ? 'mt-3' : ''}"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Fee schedule</h2></div><div class="card-body small">
-      ${s.feeSchedule.tiers.map(t => `<div class="d-flex justify-content-between py-2 border-bottom"><span>${esc(t.name)} <span class="text-body-secondary">(${Number(t.members)} member${t.members === 1 ? '' : 's'})</span></span><b>${K(t.annualDues)} / yr</b></div>`).join('')}
-      <div class="d-flex justify-content-between py-2"><span>Joining fee</span><b>${K(s.feeSchedule.joiningFee)} once</b></div>
-      <div class="alert alert-light border mt-3 mb-0">${icon('phone', 'me-1 text-primary')} Members pay by MTN, Airtel or Zamtel mobile money, iZyane Pay QR, card or bank transfer. Receipts are issued automatically.</div>
-    </div></div>`;
   const expensesCard = canExp ? `<div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2>${can('expenses:write') ? `<button class="btn btn-sm btn-primary" ${on('click', 'addExpense')}>${icon('plus-lg', 'me-1')} Add expense</button>` : ''}</div>
       <div class="table-responsive mh-520"><table class="table table-sm table-hover align-middle small mb-0"><thead class="sticky-top"><tr><th>Expense</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
       ${EXPENSES.map(x => `<tr><td><div class="fw-medium">${esc(x.description)}</div><div class="text-body-secondary">${esc(x.category)} · ${esc(x.payee)} · ${fmtDate(x.date)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event.name)}</div>` : ''}</td>
@@ -43,9 +38,9 @@ export async function payments() {
       ${canExp ? `<div class="col">${statCard('Expenses (YTD)', KM(s.expensesYtd), `${Number(s.expensesCount)} recorded · ${K(s.expensesThisMonth)} this month`, 'wallet2', 'danger')}</div>` : ''}
     </div>
     <div class="row g-3"><div class="col-xl-8">`
-    + searchBox(PS.q, 'setPQuery', 'Search by reference, payer or bank reference') + pills(PTABS, PS.tab, 'setPTab')
-    + tableCard(['Reference', 'Payer', 'Description', 'Method', '#Amount', 'Status', '#'], list.items.map(p => paymentRow(p)).join(''), 'No payments here.', pager(list, 'setPPage'))
-    + `</div><div class="col-xl-4">${expensesCard}${feeCard}</div></div>`;
+    + tableCard(['Reference', 'Payer', 'Description', 'Method', '#Amount', 'Status', '#'], list.items.map(p => paymentRow(p)).join(''), 'No payments here.', pager(list, 'setPPage'),
+      listToolbar({ filters: PTABS, active: PS.tab, filterFn: 'setPTab', label: 'Show', q: PS.q, searchFn: 'setPQuery', placeholder: 'Search by reference, payer or bank reference' }))
+    + `</div><div class="col-xl-4">${expensesCard}</div></div>`;
 }
 
 async function reconcile(btn) {

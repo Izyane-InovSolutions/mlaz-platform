@@ -1,9 +1,9 @@
 import { can } from '../../../core/auth/permissions.js';
 import { EL, expose, on } from '../../../core/events.js';
-import { empty, esc, fmtDate, icon, listItem, lower, pageHeader, pager, pills, statCard, tableCard } from '../../../shared/ui/index.js';
+import { empty, esc, fmtDate, icon, listItem, lower, pageHeader, pager, statCard, tableCard } from '../../../shared/ui/index.js';
 import { accredBadge } from '../../common/index.js';
 import { adm } from '../shared/api.js';
-import { searchBox } from '../shared/ui.js';
+import { listToolbar } from '../shared/ui.js';
 
 /* ================= CERTIFICATES ================= */
 export async function certificates() {
@@ -60,14 +60,13 @@ function issuedSection(certs) {
   const page = Math.min(Math.max(1, CS.page), Math.max(1, Math.ceil(rows.length / CERT_PAGE_SIZE)));
   const shown = rows.slice((page - 1) * CERT_PAGE_SIZE, page * CERT_PAGE_SIZE);
   return `<div id="issued-certs">`
-    + searchBox(CS.q, 'setCQuery', 'Search by member, member number or certificate no.')
-    + pills(CTABS.map(([k, l]) => [k, l]), CS.tab, 'setCTab')
     + tableCard(['Member', 'Certificate no.', 'Issued', 'Valid until', 'Status', '#'], shown.map(c => `<tr><td><a class="fw-medium" href="#/app/members/${esc(c.member.number)}">${esc(c.member.name)}</a><div class="small text-body-secondary">${esc(c.member.number)}</div></td>
       <td class="small font-monospace">${esc(c.serial)}</td><td class="small">${fmtDate(c.issuedAt)}</td><td class="small">${fmtDate(c.validUntil)}</td>
       <td>${c.member.goodStanding ? accredBadge('issued') : accredBadge(lower(c.member.accreditation))}</td>
       <td class="text-end"><button class="btn btn-sm btn-outline-secondary" title="View certificate" aria-label="View certificate" ${on('click', 'viewFile', `/admin/members/${encodeURIComponent(c.member.number)}/certificate.pdf`, EL, `Accreditation certificate · ${c.member.name}`)}>${icon('eye')}</button></td></tr>`).join(''),
     !certs.length ? 'No certificates issued yet.' : CS.q ? 'No certificates match your search.' : 'No certificates match this filter.',
-    pager({ total: rows.length, page, pageSize: CERT_PAGE_SIZE }, 'setCPage'))
+    pager({ total: rows.length, page, pageSize: CERT_PAGE_SIZE }, 'setCPage'),
+      listToolbar({ filters: CTABS.map(([k, l]) => [k, l]), active: CS.tab, filterFn: 'setCTab', label: 'Show', q: CS.q, searchFn: 'setCQuery', placeholder: 'Search by member, member number or certificate no.' }))
     + '</div>';
 }
 
