@@ -37,7 +37,7 @@ export async function settings() {
         ${row('Joining fee', K(st.joiningFee))}${row('Dues payable from', `${Number(st.renewalWindowDays)} days before expiry`)}${row('Renewal cycle', 'Annual, from the accreditation date')}</div></div></div>
         <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Bank account for transfers</h2>${editBtn(['editBank'], 'Edit bank account')}</div><div class="card-body">
         ${row('Bank', esc(b.bank))}${row('Account name', esc(b.name))}${row('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${row('Branch', esc(b.branch))}
-        <div class="small text-body-secondary mt-3">Shown to members and applicants who choose to pay by bank transfer.</div></div></div></div> 
+        <div class="small text-body-secondary mt-3">Shown to members and applicants who choose to pay by bank transfer.</div></div></div></div>
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Integrations</h2></div><div class="list-group list-group-flush">
         ${listItem('phone', 'info', 'Payments (mobile money, QR, card)', `Provider: ${esc(integ.payments.driver)}`, state(integ.payments))}
         ${listItem('envelope', 'info', 'Email', integ.email.state === 'live' ? 'SMTP' : 'Logged to the server console, not delivered', state(integ.email))}
