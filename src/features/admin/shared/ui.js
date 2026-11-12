@@ -1,7 +1,7 @@
 // Console-wide pieces: breadcrumbs, search boxes, payment rows, audit trails and labels used by several pages.
 import { can } from '../../../core/auth/permissions.js';
 import { EL, expose, invoke, on } from '../../../core/events.js';
-import { K, empty, esc, fmtDateTime, icon, listItem, lower } from '../../../shared/ui/index.js';
+import { K, empty, esc, fmtDateTime, icon, listItem, lower, pager } from '../../../shared/ui/index.js';
 import { payBadge, stageBadge } from '../../common/index.js';
 
 const tomorrow = () => new Date(Date.now() + 864e5).toISOString().slice(0, 10);
@@ -14,9 +14,23 @@ const SEARCH_SETTERS = ['setMQuery', 'setAQuery', 'setPQuery'];
 const runSearch = (fn, form) => { if (SEARCH_SETTERS.includes(fn)) invoke(fn, form.q.value.trim()); };
 const DOC_KIND = { MOF_AUTHORIZATION: 'Ministry of Finance authorization', PACRA_CERTIFICATE: 'PACRA certificate of incorporation', DIRECTOR_NRC: 'Director’s NRC', PROOF_OF_PAYMENT: 'Proof of payment', RESOURCE: 'Resource' };
 
-const auditCard = rows => `<div class="card mt-3"><div class="card-header bg-white d-flex"><h2 class="h6 mb-0 py-1">Audit trail</h2><span class="ms-auto small text-body-secondary">Every decision, with user and time</span></div><div class="list-group list-group-flush">
-  ${rows.map(x => listItem('clock-history', 'secondary', esc(x.action), `${esc(x.actorLabel)} · ${fmtDateTime(x.at)}${x.note ? ` · ${esc(x.note)}` : ''}`)).join('') || empty('No recorded activity yet.', 'clock-history')}
-</div></div>`;
+// The detail pages load the whole trail with the record, so it is paged here in the browser, five entries at a time.
+// A page shows one audit card, so the rows it was drawn from are kept for the pager to redraw it in place.
+const AUDIT_PAGE_SIZE = 5;
+let AUDIT_ROWS = [];
+function auditCard(rows, page = 1) {
+  AUDIT_ROWS = rows;
+  const pages = Math.max(1, Math.ceil(rows.length / AUDIT_PAGE_SIZE));
+  page = Math.min(Math.max(1, page), pages);
+  const shown = rows.slice((page - 1) * AUDIT_PAGE_SIZE, page * AUDIT_PAGE_SIZE);
+  return `<div class="card mt-3" id="audit-trail"><div class="card-header bg-white d-flex"><h2 class="h6 mb-0 py-1">Audit trail</h2><span class="ms-auto small text-body-secondary">Every decision, with user and time</span></div><div class="list-group list-group-flush">
+  ${shown.map(x => listItem('clock-history', 'secondary', esc(x.action), `${esc(x.actorLabel)} · ${fmtDateTime(x.at)}${x.note ? ` · ${esc(x.note)}` : ''}`)).join('') || empty('No recorded activity yet.', 'clock-history')}
+</div>${pager({ total: rows.length, page, pageSize: AUDIT_PAGE_SIZE }, 'setAuditPage')}</div>`;
+}
+const setAuditPage = page => {
+  const card = document.getElementById('audit-trail');
+  if (card) card.outerHTML = auditCard(AUDIT_ROWS, page);
+};
 
 const payDesc = p => esc(p.event ? `${p.event.name} (${p.event.tickets} ticket${p.event.tickets === 1 ? '' : 's'})` : p.lines.map(l => l.description).join(' · '));
 function paymentRow(p, { payer = true } = {}) {
@@ -36,4 +50,4 @@ const offlineFields = (refLabel = 'Bank reference or receipt number') => `<div c
 
 export { DOC_KIND, appBadge, auditCard, crumb, offlineFields, paymentRow, searchBox, tomorrow };
 
-expose({ runSearch });
+expose({ runSearch, setAuditPage });
