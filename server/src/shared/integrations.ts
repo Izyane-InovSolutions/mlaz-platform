@@ -7,6 +7,7 @@ import { config } from '../config.js';
 //   off        not connected: the feature is unavailable and says so
 // When a real adapter is added for one of these, its driver name maps to `live` here.
 
+
 export type IntegrationState = 'live' | 'simulated' | 'off';
 export interface Integration { driver: string; state: IntegrationState }
 
