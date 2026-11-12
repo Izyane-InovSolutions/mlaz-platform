@@ -10,7 +10,7 @@ const crumb = (href, label, current) => `<li class="breadcrumb-item"><a href="#/
 const searchBox = (value, fn, ph) => `<form class="mb-3 mw-420" ${on('submit', 'runSearch', fn, EL)}><div class="input-group"><span class="input-group-text bg-white">${icon('search')}</span><input class="form-control" type="search" name="q" value="${esc(value)}" aria-label="${ph}" placeholder="${ph}">${value ? `<button class="btn btn-outline-secondary" type="button" ${on('click', fn, '')}>Clear</button>` : ''}</div></form>`;
 // The search boxes above name one of these setters (registered by the list pages); the form gives the query. Only
 // these names can be run this way.
-const SEARCH_SETTERS = ['setMQuery', 'setAQuery', 'setPQuery'];
+const SEARCH_SETTERS = ['setMQuery', 'setAQuery', 'setPQuery', 'setCQuery'];
 const runSearch = (fn, form) => { if (SEARCH_SETTERS.includes(fn)) invoke(fn, form.q.value.trim()); };
 const DOC_KIND = { MOF_AUTHORIZATION: 'Ministry of Finance authorization', PACRA_CERTIFICATE: 'PACRA certificate of incorporation', DIRECTOR_NRC: 'Director’s NRC', PROOF_OF_PAYMENT: 'Proof of payment', RESOURCE: 'Resource' };
 
