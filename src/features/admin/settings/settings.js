@@ -37,8 +37,7 @@ export async function settings() {
         ${row('Joining fee', K(st.joiningFee))}${row('Dues payable from', `${Number(st.renewalWindowDays)} days before expiry`)}${row('Renewal cycle', 'Annual, from the accreditation date')}</div></div></div>
         <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Bank account for transfers</h2>${editBtn(['editBank'], 'Edit bank account')}</div><div class="card-body">
         ${row('Bank', esc(b.bank))}${row('Account name', esc(b.name))}${row('Account number', `<span class="font-monospace">${esc(b.number)}</span>`)}${row('Branch', esc(b.branch))}
-        <div class="small text-body-secondary mt-3">Shown to members and applicants who choose to pay by bank transfer.</div></div></div></div>
-      
+        <div class="small text-body-secondary mt-3">Shown to members and applicants who choose to pay by bank transfer.</div></div></div></div> 
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Integrations</h2></div><div class="list-group list-group-flush">
         ${listItem('phone', 'info', 'Payments (mobile money, QR, card)', `Provider: ${esc(integ.payments.driver)}`, state(integ.payments))}
         ${listItem('envelope', 'info', 'Email', integ.email.state === 'live' ? 'SMTP' : 'Logged to the server console, not delivered', state(integ.email))}
@@ -47,7 +46,6 @@ export async function settings() {
         ${listItem('search', 'info', 'Credit bureau', integ.creditBureau.state === 'off' ? 'No bureau connected: credit checks are unavailable' : `Driver: ${esc(integ.creditBureau.driver)}`, state(integ.creditBureau))}
         ${listItem('building', 'info', 'ZRA TPIN lookup', 'Format check only', state(integ.tpinLookup))}
       </div></div></div>
-      
       <div class="col-12"><div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Message delivery problems</h2></div>
         ${failedMsgs.length ? `<div class="table-responsive"><table class="table align-middle mb-0 small"><thead><tr><th>When</th><th>Channel</th><th>To</th><th>Subject</th><th>Error</th><th></th></tr></thead><tbody>
           ${failedMsgs.map(n => `<tr><td>${fmtDateTime(n.createdAt)}</td><td>${esc(n.channel)}</td><td>${esc(n.to)}</td><td>${esc(n.subject || '—')}</td><td class="text-danger-emphasis">${esc(n.lastError || '')}</td>
