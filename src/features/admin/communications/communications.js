@@ -27,7 +27,7 @@ export async function communications() {
       <div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Resource library</h2>${write ? `<button class="btn btn-sm btn-outline-primary" ${on('click', 'addResource')}>${icon('upload', 'me-1')} Upload</button>` : ''}</div><div class="list-group list-group-flush">
         ${Object.entries(groups).map(([cat, items]) => `<div class="list-group-item bg-body-tertiary small fw-semibold">${icon('folder2', 'me-1')}${esc(cat)} <span class="text-body-secondary fw-normal">(${items.length})</span></div>`
           + items.map(r => `<div class="list-group-item d-flex align-items-center gap-2 small"><div class="flex-grow-1 min-w-0"><div class="fw-medium text-truncate">${esc(r.title)}</div><div class="text-body-secondary">${esc(r.filename)} · ${fmtDate(r.createdAt)}</div></div>
-            <button class="btn btn-sm btn-light" title="Download" ${on('click', 'getFile', `/admin/resources/${encodeURIComponent(r.id)}/download`, EL)}>${icon('download')}</button>${write ? `<button class="btn btn-sm btn-light" title="Remove" ${on('click', 'removeResource', r.id)}>${icon('trash')}</button>` : ''}</div>`).join('')).join('') || empty('No documents in the library yet.', 'folder2')}
+            <button class="btn btn-sm btn-light" title="View" aria-label="View ${esc(r.title)}" ${on('click', 'viewFile', `/admin/resources/${encodeURIComponent(r.id)}/download`, EL, r.title)}>${icon('eye')}</button>${write ? `<button class="btn btn-sm btn-light" title="Remove" ${on('click', 'removeResource', r.id)}>${icon('trash')}</button>` : ''}</div>`).join('')).join('') || empty('No documents in the library yet.', 'folder2')}
       </div></div>
     </div></div>`;
 }

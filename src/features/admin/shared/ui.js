@@ -22,7 +22,7 @@ const payDesc = p => esc(p.event ? `${p.event.name} (${p.event.tickets} ticket${
 function paymentRow(p, { payer = true } = {}) {
   const review = p.status === 'PENDING' && p.method === 'BANK_TRANSFER' && p.hasProof && can('payments:confirm');
   const action = review ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'reviewPayment', p.ref)}>Review PoP</button>`
-    : p.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" ${on('click', 'getFile', `/admin/payments/${encodeURIComponent(p.ref)}/receipt.pdf`, EL)}>${icon('receipt')}</button>`
+    : p.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" ${on('click', 'viewFile', `/admin/payments/${encodeURIComponent(p.ref)}/receipt.pdf`, EL, `Receipt · ${p.ref}`)}>${icon('receipt')}</button>`
       : p.status === 'PENDING' && p.method === 'BANK_TRANSFER' && !p.hasProof ? '<span class="small text-body-secondary">Awaiting proof</span>' : '';
   return `<tr><td class="small font-monospace">${esc(p.ref)}</td>
     ${payer ? `<td><div class="fw-medium">${esc(p.payerName)}</div><div class="small text-body-secondary">${fmtDateTime(p.createdAt)}${p.memberNumber ? ` · <a href="#/app/members/${esc(p.memberNumber)}">${esc(p.memberNumber)}</a>` : p.applicationRef ? ` · <a href="#/app/applications/${esc(p.applicationRef)}">${esc(p.applicationRef)}</a>` : ''}</div></td>` : `<td class="small">${fmtDateTime(p.createdAt)}</td>`}

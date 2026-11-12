@@ -27,7 +27,7 @@ export async function dues() {
       <div class="table-responsive"><table class="table align-middle mb-0 small"><thead><tr><th>Description</th><th>Method</th><th>Date</th><th class="text-end">Amount</th><th>Status</th><th></th></tr></thead><tbody>
       ${payments.map(x => `<tr><td>${esc(x.event ? `Event: ${x.event.name}` : x.lines.map(l => l.description).join(' · '))}<div class="text-body-secondary font-monospace">${esc(x.ref)}</div></td><td>${esc(x.methodLabel)}</td><td>${fmtDate(x.paidAt || x.createdAt)}</td>
         <td class="text-end fw-medium">${K(x.amount)}</td><td>${payBadge(lower(x.status))}</td>
-        <td class="text-end">${x.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" ${on('click', 'getFile', `/portal/payments/${encodeURIComponent(x.ref)}/receipt.pdf`, EL)}>${icon('receipt')}</button>` : ''}</td></tr>`).join('') || `<tr><td colspan="6">${empty('No payments yet.', 'credit-card')}</td></tr>`}
+        <td class="text-end">${x.status === 'SUCCESS' ? `<button class="btn btn-sm btn-light" title="Receipt" ${on('click', 'viewFile', `/portal/payments/${encodeURIComponent(x.ref)}/receipt.pdf`, EL, `Receipt · ${x.ref}`)}>${icon('receipt')}</button>` : ''}</td></tr>`).join('') || `<tr><td colspan="6">${empty('No payments yet.', 'credit-card')}</td></tr>`}
       </tbody></table></div></div></div></div>`;
 }
 function payDues(btn) {

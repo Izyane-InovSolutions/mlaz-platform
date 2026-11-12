@@ -52,6 +52,10 @@ test.describe.serial('bank transfers', () => {
     await page.getByRole('row', { name: new RegExp(confirmRef) }).getByRole('button', { name: 'Review PoP' }).click();
     let dlg = dialog(page, `Proof of payment · ${payer.name}`);
     await expect(dlg.getByText('FT26E2ECONF1')).toBeVisible();
+    // The PDF is drawn by the app (not the browser's PDF viewer, which some browsers replace with a download).
+    await expect(dlg.getByRole('img', { name: /^Proof of payment, page 1 of \d+$/ })).toBeVisible();
+    await expect(dlg.locator('iframe')).toHaveCount(0);
+    await expect(dlg.getByRole('link', { name: 'Download' })).toBeVisible();
     await dlg.getByRole('button', { name: 'Confirm payment' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'Payment confirmed. Membership extended and receipt sent' })).toBeVisible();
     await expect.poll(() => paymentStatus(confirmRef)).toBe('SUCCESS');

@@ -3,9 +3,8 @@ import { can } from '../../../core/auth/permissions.js';
 import { EL, expose, on } from '../../../core/events.js';
 import { rerender } from '../../../core/navigation.js';
 import { K, KM, asyncModal, busy, done, empty, esc, fail, fmtDate, fmtDateTime, icon, lower, modal, note, pageHeader, pager, pills, safeFilename, safeUrl, statCard, tableCard, today } from '../../../shared/ui/index.js';
-import { payBadge } from '../../common/index.js';
+import { documentPreview, documentUrl, mountPreview, payBadge } from '../../common/index.js';
 import { adm, qs } from '../shared/api.js';
-import { documentPreview, documentUrl } from '../shared/documents.js';
 import { paymentRow, searchBox } from '../shared/ui.js';
 
 /* ================= PAYMENTS & EXPENSES ================= */
@@ -59,11 +58,11 @@ async function reconcile(btn) {
 async function reviewPayment(ref) {
   let p;
   try { p = await adm(`/payments/${encodeURIComponent(ref)}`); } catch (e) { return fail(e); }
-  let url = null, doc = `<div class="border rounded p-4 text-center text-body-secondary small">${icon('file-earmark', 'fs-2 d-block mb-2')}No proof of payment uploaded</div>`;
+  let url = null, file = null, doc = `<div class="border rounded p-4 text-center text-body-secondary small">${icon('file-earmark', 'fs-2 d-block mb-2')}No proof of payment uploaded</div>`;
   if (p.proofDocumentId && can('documents:read')) {
     try {
       const d = documentUrl(await (await api(`/admin/documents/${encodeURIComponent(p.proofDocumentId)}`, { raw: true })).blob());
-      url = d.url;
+      url = d.url; file = d;
       doc = documentPreview(d, 'Proof of payment', 'h-60vh');
     } catch (e) { doc = note('danger', 'exclamation-circle', esc(e.message)); }
   }
@@ -78,6 +77,7 @@ async function reviewPayment(ref) {
     footer: `${url ? `<a class="btn btn-light me-auto" href="${esc(safeUrl(url, 'blob'))}" download="${esc(safeFilename(`proof-${p.ref}`))}">${icon('download', 'me-1')} Download</a>` : ''}<button class="btn btn-light" data-bs-dismiss="modal">Close</button>
       ${reviewable ? `<button class="btn btn-outline-danger" data-reject>Reject</button><button class="btn btn-primary" data-confirm>${icon('check-lg', 'me-1')} Confirm payment</button>` : ''}`,
   });
+  if (file) mountPreview(el, file, 'Proof of payment');
   if (url) el.addEventListener('hidden.bs.modal', () => URL.revokeObjectURL(url));
   el.querySelector('[data-confirm]')?.addEventListener('click', async e => {
     const btn = e.currentTarget;

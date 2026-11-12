@@ -22,7 +22,7 @@ export async function certificates() {
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1"><span class="badge text-bg-primary me-2">2</span>MLAZ accreditation</h2></div><div class="card-body d-flex flex-column">
         ${row('Certificate no.', m.certificate ? `<span class="font-monospace">${esc(m.certificate.serial)}</span>` : '—')}${row('Status', accredBadge(lower(m.accreditation)))}${row('Valid until', fmtDate(m.validUntil))}
         <p class="small text-body-secondary mt-3">Issued after your MoF authorization was verified and dues paid. Anyone can verify it by scanning the QR code.</p>
-        <button class="btn btn-primary mt-auto" ${m.goodStanding && m.certificate ? '' : 'disabled'} ${on('click', 'getFile', '/portal/certificate.pdf', EL)}>${icon('download', 'me-1')} Download certificate (PDF)</button>
+        <button class="btn btn-primary mt-auto" ${m.goodStanding && m.certificate ? '' : 'disabled'} ${on('click', 'viewFile', '/portal/certificate.pdf', EL, 'Accreditation certificate')}>${icon('eye', 'me-1')} View certificate</button>
       </div></div></div>
     </div>
     ${note('light border', 'info-circle', 'Your MoF authorization is verified <b>first</b>, then your MLAZ accreditation is issued. If your MoF authorization lapses, your accreditation is suspended until a renewal is verified.')}`;

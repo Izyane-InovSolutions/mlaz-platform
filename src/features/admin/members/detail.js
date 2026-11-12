@@ -13,7 +13,7 @@ export async function memberDetail(number) {
   const n = esc(m.number), num = m.number, d = m.dues;
   const renewal = m.pendingRenewal && m.renewals.find(r => r.id === m.pendingRenewal.id);
   const actions = [
-    m.certificate ? `<button class="btn btn-outline-secondary" ${on('click', 'getFile', `/admin/members/${encodeURIComponent(num)}/certificate.pdf`, EL)}>${icon('award', 'me-1')} Certificate</button>` : '',
+    m.certificate ? `<button class="btn btn-outline-secondary" ${on('click', 'viewFile', `/admin/members/${encodeURIComponent(num)}/certificate.pdf`, EL, 'Accreditation certificate')}>${icon('award', 'me-1')} Certificate</button>` : '',
     can('members:write') ? `<button class="btn btn-outline-secondary" ${on('click', 'editMember')}>${icon('pencil', 'me-1')} Edit</button><button class="btn btn-outline-secondary" ${on('click', 'sendReminder', num, EL)}>${icon('envelope', 'me-1')} Send reminder</button>` : '',
     can('payments:record') && d.payable ? `<button class="btn btn-outline-secondary" ${on('click', 'recordDues', num)}>${icon('cash', 'me-1')} Record dues payment</button>` : '',
     can('members:write') ? (m.status === 'ACTIVE' ? `<button class="btn btn-outline-danger" ${on('click', 'suspendMember', num)}>${icon('slash-circle', 'me-1')} Suspend</button>` : `<button class="btn btn-primary" ${on('click', 'reinstateMember', num)}>${icon('arrow-counterclockwise', 'me-1')} Reinstate</button>`) : '',

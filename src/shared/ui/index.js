@@ -8,3 +8,4 @@ export * from './modal.js';
 export * from './toast.js';
 export * from './print.js';
 export * from './a11y.js';
+export * from './pdf.js';

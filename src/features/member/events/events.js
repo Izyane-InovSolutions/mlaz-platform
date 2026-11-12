@@ -40,7 +40,7 @@ async function eventPage(id) {
     panel = `<div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Your registration</h2></div><div class="card-body">
       ${row('Tickets', tix(r.tickets))}${row('Amount', Number(r.amount) ? K(r.amount) : 'Free')}${row('Status', r.status === 'PENDING' ? badge('Payment pending', 'warning') : badge('Confirmed', 'success'))}
       ${pending}
-      ${r.status === 'CONFIRMED' ? `<div class="d-flex gap-2 mt-3">${r.payment ? `<button class="btn btn-outline-secondary flex-grow-1" ${on('click', 'getFile', `/portal/payments/${encodeURIComponent(r.payment.ref)}/receipt.pdf`, EL)}>${icon('receipt', 'me-1')} Receipt</button>` : ''}
+      ${r.status === 'CONFIRMED' ? `<div class="d-flex gap-2 mt-3">${r.payment ? `<button class="btn btn-outline-secondary flex-grow-1" ${on('click', 'viewFile', `/portal/payments/${encodeURIComponent(r.payment.ref)}/receipt.pdf`, EL, `Receipt · ${r.payment.ref}`)}>${icon('receipt', 'me-1')} Receipt</button>` : ''}
         ${Number(r.amount) ? '' : '<button class="btn btn-light flex-grow-1" data-on-click="cancelReg">Cancel registration</button>'}</div>
         ${Number(r.amount) ? `<div class="small text-body-secondary mt-3">${icon('info-circle', 'me-1')}To change or cancel a paid registration, contact the Secretariat.</div>` : ''}` : ''}
     </div>`;

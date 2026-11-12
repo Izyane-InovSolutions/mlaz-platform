@@ -203,10 +203,10 @@ test('error messages and download names are escaped or sanitised before they rea
 });
 
 test('document previews only render the types the server accepts', () => {
-  const docs = ALL.find(([f]) => f.endsWith('admin/shared/documents.js'))[1];
+  const docs = ALL.find(([f]) => f.endsWith('common/documents.js'))[1];
   assert.match(docs, /const PREVIEW = \['application\/pdf', 'image\/jpeg', 'image\/png'\]/);
   assert.match(docs, /new Blob\(\[blob\], \{ type \}\)/, 'documents are re-typed before an object URL is made');
-  for (const [f, c] of ALL) if (!f.endsWith('admin/shared/documents.js')) assert.doesNotMatch(c, /blob\.type\.startsWith/, `${f}: previews a blob by its own type; use documentPreview()`);
+  for (const [f, c] of ALL) if (!f.endsWith('common/documents.js')) assert.doesNotMatch(c, /blob\.type\.startsWith/, `${f}: previews a blob by its own type; use documentPreview()`);
 });
 
 test('printDoc writes no inline style and copies only same-origin stylesheets', () => {

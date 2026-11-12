@@ -11,6 +11,9 @@ import { payments } from './payments/index.js';
 import { reports } from './reports/index.js';
 import { settings } from './settings/index.js';
 import { adm } from './shared/api.js';
+// Registers the viewDoc handler that the application and member pages name in their View buttons. Nothing imports a
+// binding from it, so without this import the module is never loaded and those buttons do nothing.
+import './shared/documents.js';
 
 export { adminSearch } from './search/index.js';
 

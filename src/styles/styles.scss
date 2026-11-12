@@ -130,6 +130,9 @@ $sidebar-w: 260px;
 .mw-220 { max-width: 220px; } .mw-420 { max-width: 420px; } .mw-440 { max-width: 440px; } .mw-640 { max-width: 640px; }
 .mw-760 { max-width: 760px; } .mw-860 { max-width: 860px; } .minw-56 { min-width: 56px; } .mh-520 { max-height: 520px; }
 .h-60vh { height: 60vh; } .h-70vh { height: 70vh; }
+// PDFs drawn by shared/ui/pdf.js: one canvas per page, scaled to the box's width.
+.pdf-view .pdf-page { display: block; width: 100%; height: auto; margin: 0 auto 1rem; background: #fff; box-shadow: $box-shadow-sm; }
+.pdf-view .pdf-page:last-child { margin-bottom: 0; }
 .pre-line { white-space: pre-line; }
 .grid-cols-2 { grid-template-columns: 1fr 1fr; }
 .z-toast { z-index: 1090; }

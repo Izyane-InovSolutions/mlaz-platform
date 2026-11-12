@@ -58,7 +58,7 @@ function decision(a) {
   }
   if (a.stage === 'REJECTED') return note('danger', 'x-octagon', `<b>Not approved.</b> ${esc(a.rejectionReason || '')}`);
   return note('success', 'award', `Accredited as member <b>${esc(a.memberNumber)}</b>. The certificate was generated automatically on payment.`)
-    + `<div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-secondary" ${on('click', 'getFile', `/admin/members/${encodeURIComponent(a.memberNumber)}/certificate.pdf`, EL)}>${icon('award', 'me-1')} Certificate</button><a class="btn btn-primary" href="#/app/members/${encodeURIComponent(a.memberNumber)}">Open member record</a></div>`;
+    + `<div class="d-flex flex-wrap gap-2"><button class="btn btn-outline-secondary" ${on('click', 'viewFile', `/admin/members/${encodeURIComponent(a.memberNumber)}/certificate.pdf`, EL, 'Accreditation certificate')}>${icon('award', 'me-1')} Certificate</button><a class="btn btn-primary" href="#/app/members/${encodeURIComponent(a.memberNumber)}">Open member record</a></div>`;
 }
 export async function appDetail(ref) {
   const a = CUR_APP = await adm(`/applications/${encodeURIComponent(ref)}`);

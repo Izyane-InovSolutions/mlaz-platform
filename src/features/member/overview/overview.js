@@ -21,7 +21,7 @@ export async function overview() {
     </div>
     <div class="row g-3 mb-3">
       <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Quick actions</h2></div><div class="list-group list-group-flush">
-        ${listItem('award', 'success', 'Accreditation certificate', m.certificate ? esc(m.certificate.serial) : 'Not issued', m.goodStanding && m.certificate ? `<button class="btn btn-sm btn-outline-secondary" ${on('click', 'getFile', '/portal/certificate.pdf', EL)}>Download</button>` : '')}
+        ${listItem('award', 'success', 'Accreditation certificate', m.certificate ? esc(m.certificate.serial) : 'Not issued', m.goodStanding && m.certificate ? `<button class="btn btn-sm btn-outline-secondary" ${on('click', 'viewFile', '/portal/certificate.pdf', EL, 'Accreditation certificate')}>View</button>` : '')}
         ${listItem('file-earmark-arrow-up', 'info', 'Renew MoF authorization', m.mofExpiry ? `Expires ${fmtDate(m.mofExpiry)}` : esc(m.mofRef), '<a class="btn btn-sm btn-outline-secondary" href="#/app/certificates">Upload</a>')}
         ${listItem('credit-card', 'warning', 'Pay annual dues', m.dues.payable ? `${K(m.dues.amount)} due` : `Paid until ${fmtDate(m.validUntil)}`, '<a class="btn btn-sm btn-outline-secondary" href="#/app/dues">Open</a>')}
         ${o.nextEvent ? listItem('calendar-event', 'primary', esc(o.nextEvent.name), `${fmtDate(o.nextEvent.date)} · ${esc(o.nextEvent.venue)}`, `<a class="btn btn-sm btn-outline-secondary" href="#/app/events/${encodeURIComponent(o.nextEvent.id)}">View</a>`) : ''}

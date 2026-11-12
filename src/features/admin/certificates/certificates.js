@@ -36,5 +36,5 @@ export async function certificates() {
     + tableCard(['Member', 'Certificate no.', 'Issued', 'Valid until', 'Status', '#'], certs.map(c => `<tr><td><a class="fw-medium" href="#/app/members/${esc(c.member.number)}">${esc(c.member.name)}</a><div class="small text-body-secondary">${esc(c.member.number)}</div></td>
       <td class="small font-monospace">${esc(c.serial)}</td><td class="small">${fmtDate(c.issuedAt)}</td><td class="small">${fmtDate(c.validUntil)}</td>
       <td>${c.member.goodStanding ? accredBadge('issued') : accredBadge(lower(c.member.accreditation))}</td>
-      <td class="text-end"><button class="btn btn-sm btn-outline-secondary" title="Download certificate" ${on('click', 'getFile', `/admin/members/${encodeURIComponent(c.member.number)}/certificate.pdf`, EL)}>${icon('download')}</button></td></tr>`).join(''), 'No certificates issued yet.');
+      <td class="text-end"><button class="btn btn-sm btn-outline-secondary" title="View certificate" aria-label="View certificate" ${on('click', 'viewFile', `/admin/members/${encodeURIComponent(c.member.number)}/certificate.pdf`, EL, `Accreditation certificate · ${c.member.name}`)}>${icon('eye')}</button></td></tr>`).join(''), 'No certificates issued yet.');
 }

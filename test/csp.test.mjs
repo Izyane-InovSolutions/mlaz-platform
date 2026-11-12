@@ -118,7 +118,10 @@ test('the built bundle contains no inline script and no eval', { skip: !existsSy
     assert.doesNotMatch(js, /\bonclick="|\boninput="|\bonsubmit="|\bonchange="/, `${f}: inline handler in generated markup`);
     assert.doesNotMatch(js, /javascript:void/, `${f}: javascript: URL`);
     assert.doesNotMatch(js, /new Function\(|\beval\(/, `${f}: eval-like call (would need 'unsafe-eval')`);
-    assert.doesNotMatch(js, /\sstyle=\\?["'][a-z-]+:/i, `${f}: inline style attribute in generated markup (blocked by style-src)`);
+    // An SVG loaded as an image (a data: URL) is its own document: the page's style-src does not apply inside it.
+    // PDF.js has one such feature probe, so those are left out before looking for inline styles in the page's markup.
+    const markup = js.replace(/data:image\/svg\+xml[^<]*<svg[\s\S]*?<\/svg>/g, '');
+    assert.doesNotMatch(markup, /\sstyle=\\?["'][a-z-]+:/i, `${f}: inline style attribute in generated markup (blocked by style-src)`);
   }
 });
 

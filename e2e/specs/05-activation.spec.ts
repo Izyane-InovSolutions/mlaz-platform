@@ -84,9 +84,14 @@ test.describe.serial('accreditation and member activation', () => {
     await signInAndWait(page, 'member', a.email, NEW_PASSWORD);
     await page.getByRole('link', { name: 'Certificates' }).click();
     await expect(page.getByText(serial)).toBeVisible();
+    // The certificate opens in the page (drawn by the app), and the dialog's Download link saves the PDF.
+    await page.getByRole('button', { name: 'View certificate' }).click();
+    const viewer = dialog(page, 'Accreditation certificate');
+    await expect(viewer.getByRole('img', { name: /^Accreditation certificate, page 1 of \d+$/ })).toBeVisible();
     const download = page.waitForEvent('download');
-    await page.getByRole('button', { name: 'Download certificate (PDF)' }).click();
+    await viewer.getByRole('link', { name: 'Download' }).click();
     await expectPdf(await download);
+    await viewer.locator('.modal-footer').getByRole('button', { name: 'Close' }).click();
 
     // The certificate's QR code opens #/verify/<member number>; the certificate number works too.
     for (const q of [memberNumber, encodeURIComponent(serial)]) {
