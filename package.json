@@ -7,6 +7,7 @@
     "node": ">=22.13"
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "dev": "vite",
     "build": "vite build",
     "build:server": "npm --prefix server run build",

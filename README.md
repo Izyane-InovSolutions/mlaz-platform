@@ -10,7 +10,15 @@ Security (sessions, two-factor sign-in, permissions) is described in [server/REA
 
 ## Run locally
 
-Start the API first (see [server/README.md](server/README.md) for the one-time database setup):
+**First time:** with Node 22.13+ and Docker Desktop running, one command does the whole setup. It creates both `.env`
+files (with random secrets), installs dependencies, starts PostgreSQL in Docker, applies the migrations and seeds the
+demo data. It is safe to run again, and it prints the demo sign-ins when it finishes.
+
+```bash
+npm run setup                  # add -- --reset to drop the dev database and re-seed it from scratch
+```
+
+After that, start the API first (the manual steps are in [server/README.md](server/README.md)):
 
 ```bash
 cd server && npm run db:up && npm run dev      # API on http://localhost:3000
