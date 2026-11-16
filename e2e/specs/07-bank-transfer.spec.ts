@@ -47,6 +47,8 @@ test.describe.serial('bank transfers', () => {
     test.skip(!confirmRef || !rejectRef, 'needs the upload test');
     await signInAndWait(page, 'admin', STAFF.finance.email);
     await page.getByRole('link', { name: /Payments & dues/ }).click();
+    // The status filters sit in the "Show" dropdown on the table's header.
+    await page.getByRole('button', { name: /^Show:/ }).click();
     await page.getByRole('button', { name: 'Awaiting review' }).click();
 
     await page.getByRole('row', { name: new RegExp(confirmRef) }).getByRole('button', { name: 'Review PoP' }).click();

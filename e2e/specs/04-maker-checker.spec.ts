@@ -17,7 +17,8 @@ test.describe.serial('maker-checker approval', () => {
     await signInAndWait(page, 'admin', STAFF.officer.email);
     await page.goto(`/#/app/applications/${ref}`);
     await expect(page.getByRole('heading', { name: a.name })).toBeVisible();
-    await expect(page.getByText('All documents received')).toBeVisible();
+    // The checks are also drawn in the closed "View all checks" drawer; this is the card on the page.
+    await expect(page.getByText('All documents received').first()).toBeVisible();
     await page.getByRole('button', { name: 'Recommend approval' }).click();
 
     const dlg = dialog(page, 'Recommend for approval');
