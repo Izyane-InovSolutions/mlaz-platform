@@ -27,11 +27,7 @@ export async function expenses() {
       <div class="col">${statCard('Total expenses', KM(result.total), `${EXPENSES.length} recorded`, 'wallet2', 'danger')}</div>
       ${methods.map(([method, methodIcon]) => `<div class="col">${statCard(`${method} expenses`, KM(methodTotals[method]), '', methodIcon, 'primary')}</div>`).join('')}
     </div>
-    <div class="card">${listToolbar({
-      filters: [['', 'All'], ...methods.map(([method]) => [method, method])],
-      active: ES.method, filterFn: 'setEMethod', label: 'Show',
-      q: ES.q, searchFn: 'setEQuery', placeholder: 'Search by description, payee, category or reference',
-    })}<div class="table-responsive"><table class="table table-sm table-hover align-middle small mb-0">
+    <div class="card">${listToolbar({ filters: [['', 'All'], ...methods.map(([method]) => [method, method])], active: ES.method, filterFn: 'setEMethod', label: 'Show', q: ES.q, searchFn: 'setEQuery', placeholder: 'Search by description, payee, category or reference' })}<div class="table-responsive"><table class="table table-sm table-hover align-middle small mb-0">
       <thead><tr><th>Expense</th><th>Paid to</th><th>Category</th><th>Date paid</th><th>Method</th><th class="text-end">Amount</th><th></th></tr></thead>
       <tbody>${filtered.map(x => `<tr>
         <td><div class="fw-medium">${esc(x.description)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event.name)}</div>` : ''}</td>

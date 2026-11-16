@@ -21,10 +21,11 @@ export const trailFor = (target: string, take?: number) => prisma.auditLog.findM
 
 export const timelineFor = (memberId: string, take: number) => prisma.memberActivity.findMany({ where: { memberId }, orderBy: { at: 'desc' }, take });
 
-export async function searchAuditLog(q: { target?: string; q?: string; page: number; pageSize: number }) {
+export async function searchAuditLog(q: { target?: string; actorType?: 'STAFF' | 'MEMBER' | 'APPLICANT' | 'SYSTEM'; q?: string; page: number; pageSize: number }) {
   const where: P.AuditLogWhereInput = {
     ...(q.target && { target: q.target }),
-    ...(q.q && { OR: [{ action: { contains: q.q, mode: 'insensitive' } }, { actorLabel: { contains: q.q, mode: 'insensitive' } }, { note: { contains: q.q, mode: 'insensitive' } }] }),
+    ...(q.actorType && { actorType: q.actorType }),
+    ...(q.q && { OR: [{ target: { contains: q.q, mode: 'insensitive' } }, { action: { contains: q.q, mode: 'insensitive' } }, { actorLabel: { contains: q.q, mode: 'insensitive' } }, { note: { contains: q.q, mode: 'insensitive' } }] }),
   };
   const [items, total] = await Promise.all([
     prisma.auditLog.findMany({ where, orderBy: { at: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
