@@ -8,10 +8,16 @@ let EXPENSES = [];
 export async function expenses() {
   const result = await adm('/expenses');
   EXPENSES = result.items;
+  const methods = [['Bank transfer', 'bank'], ['Card', 'credit-card'], ['Mobile money', 'phone'], ['Cash', 'cash']];
+  const methodTotals = Object.fromEntries(methods.map(([method]) => [
+    method,
+    EXPENSES.filter(expense => expense.method === method).reduce((total, expense) => total + Number(expense.amount), 0),
+  ]));
   return pageHeader('Expenses', 'Record and review association spending',
     `${can('expenses:write') ? `<button class="btn btn-primary" ${on('click', 'addExpense')}>${icon('plus-lg', 'me-1')} Add expense</button>` : ''}`)
-    + `<div class="row row-cols-1 row-cols-sm-2 g-3 mb-4">
+    + `<div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-4">
       <div class="col">${statCard('Total expenses', KM(result.total), `${EXPENSES.length} recorded`, 'wallet2', 'danger')}</div>
+      ${methods.map(([method, methodIcon]) => `<div class="col">${statCard(`${method} expenses`, KM(methodTotals[method]), '', methodIcon, 'primary')}</div>`).join('')}
     </div>
     <div class="card"><div class="table-responsive"><table class="table table-sm table-hover align-middle small mb-0">
       <thead class="sticky-top"><tr><th>Expense</th><th>Paid to</th><th>Category</th><th>Date paid</th><th>Method</th><th class="text-end">Amount</th><th></th></tr></thead>
