@@ -5,27 +5,35 @@ import { nav } from '../../../core/navigation.js';
 import { K, asyncModal, done, empty, esc, fmtDate, fmtDateTime, icon, infoRow as info, listItem, lower, note, pageHeader, stepper, toast } from '../../../shared/ui/index.js';
 import { tierBadge } from '../../common/index.js';
 import { adm } from '../shared/api.js';
-import { DOC_KIND, appBadge, auditCard, crumb, offlineFields, paymentRow, tomorrow } from '../shared/ui.js';
+import { DOC_KIND, appBadge, crumb, offlineFields, paymentRow, tomorrow } from '../shared/ui.js';
 
 const JOURNEY = ['Submitted', 'MoF authorization', 'Verification', 'Payment', 'Accredited'];
 const STAGE_IDX = { DETAILS: 1, MOF_REVIEW: 2, PAYMENT_PENDING: 3, ACCREDITED: 5 };
 
 let CUR_APP = null;
-function checksCard(a) {
+// The automated checks, as list rows. `full` keeps every detail (the drawer); otherwise each detail is cut to one line
+// so the card fits beside "Review and decision".
+function checkRows(a, full) {
   const c = a.checks;
-  const row = (ok, title, sub, bad = 'warning') => listItem(ok ? 'check-circle-fill' : 'exclamation-triangle-fill', ok ? 'success' : bad, title, sub);
-  return `<div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Automated checks</h2></div><div class="list-group list-group-flush">
-    ${row(c.tpinValid, c.tpinValid ? 'TPIN format valid' : 'TPIN is not valid', `${esc(a.business.tpin)} · ZRA register lookup is not connected yet; confirm manually`, 'danger')}
-    ${row(!c.duplicates.length, c.duplicates.length ? 'Possible duplicate' : 'No duplicates found', c.duplicates.length
+  const row = (ok, title, sub, bad = 'warning') => listItem(ok ? 'check-circle-fill' : 'exclamation-triangle-fill', ok ? 'success' : bad, title, full ? sub : `<span class="d-block text-truncate">${sub}</span>`);
+  return row(c.tpinValid, c.tpinValid ? 'TPIN format valid' : 'TPIN is not valid', `${esc(a.business.tpin)} · ZRA register lookup is not connected yet; confirm manually`, 'danger')
+    + row(!c.duplicates.length, c.duplicates.length ? 'Possible duplicate' : 'No duplicates found', c.duplicates.length
       ? c.duplicates.map(d => `Same ${esc(d.matches.join(', '))} as <a href="#/app/${d.type === 'member' ? 'members' : 'applications'}/${encodeURIComponent(d.ref)}">${esc(d.name)}</a> (${esc(d.type)} ${esc(d.ref)}, ${esc(lower(d.status).replace('_', ' '))})`).join('<br>')
-      : 'Checked against all members and open applications by TPIN, PACRA no., name, email and phone', 'danger')}
-    ${row(!c.missingDocuments.length, c.missingDocuments.length ? 'Documents incomplete' : 'All documents received', c.missingDocuments.length ? `Missing: ${c.missingDocuments.map(k => DOC_KIND[k]).join(', ')}` : 'MoF authorization, PACRA certificate and director NRC')}
-  </div></div>`;
+      : 'Checked against all members and open applications by TPIN, PACRA no., name, email and phone', 'danger')
+    + row(!c.missingDocuments.length, c.missingDocuments.length ? 'Documents incomplete' : 'All documents received', c.missingDocuments.length ? `Missing: ${c.missingDocuments.map(k => DOC_KIND[k]).join(', ')}` : 'MoF authorization, PACRA certificate and director NRC');
 }
+// On large screens the card takes the height of "Review and decision" (see .fit-col) and clips its rows; "View all"
+// opens the drawer with every check in full.
+const checksCard = a => `<div class="card fit-col-card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Automated checks</h2>${a.checks.flags.length ? `<span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">${a.checks.flags.length} flagged</span>` : ''}</div>
+  <div class="list-group list-group-flush fit-col-body">${checkRows(a, false)}</div>
+  <div class="card-footer bg-white text-end"><button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="offcanvas" data-bs-target="#checks-drawer" aria-controls="checks-drawer">View all checks ${icon('arrow-right', 'ms-1')}</button></div></div>`;
+const checksDrawer = a => `<div class="offcanvas offcanvas-end" tabindex="-1" id="checks-drawer" aria-labelledby="checks-drawer-title">
+  <div class="offcanvas-header border-bottom"><div><h2 class="h5 mb-0" id="checks-drawer-title">Automated checks</h2><div class="small text-body-secondary">${esc(a.business.name)} · ${esc(a.ref)}</div></div><button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button></div>
+  <div class="offcanvas-body p-0"><div class="list-group list-group-flush">${checkRows(a, true)}</div></div></div>`;
 function docsCard(a) {
   const detail = { MOF_AUTHORIZATION: `Ref ${esc(a.mofRef || '—')}${a.mofExpiry ? ` · expires ${fmtDate(a.mofExpiry)}` : ''}`, PACRA_CERTIFICATE: `PACRA ${esc(a.business.pacra)}`, DIRECTOR_NRC: `${esc(a.director.name)} · NRC ${esc(a.director.nrc)}` };
   const docs = [...a.documents].sort((x, y) => x.superseded - y.superseded);
-  return `<div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Documents</h2></div><div class="list-group list-group-flush">
+  return `<div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Documents</h2></div><div class="list-group list-group-flush">
     ${docs.map(d => listItem(d.kind === 'DIRECTOR_NRC' ? 'person-vcard' : d.kind === 'PROOF_OF_PAYMENT' ? 'receipt' : 'file-earmark-text', d.superseded ? 'secondary' : 'info',
       `${DOC_KIND[d.kind]}${d.superseded ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Replaced</span>' : ''}`, `${esc(d.filename)}${detail[d.kind] && !d.superseded ? ` · ${detail[d.kind]}` : ''} · ${fmtDate(d.uploadedAt)}`,
       can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'viewDoc', d.id, `${DOC_KIND[d.kind]} · ${a.business.name}`)}>${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents uploaded.', 'folder')}
@@ -64,21 +72,19 @@ export async function appDetail(ref) {
   const a = CUR_APP = await adm(`/applications/${encodeURIComponent(ref)}`);
   return pageHeader(esc(a.business.name), `${esc(a.ref)} · ${esc(a.business.town)} · submitted ${fmtDateTime(a.submittedAt)}`, appBadge(a), crumb('applications', 'Applications', a.business.name))
     + (STAGE_IDX[a.stage] ? `<div class="card mb-3"><div class="card-body py-4">${stepper(JOURNEY, STAGE_IDX[a.stage])}</div></div>` : '')
-    + `<div class="row g-3">
-      <div class="col-lg-7">
-        <div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Review and decision</h2></div><div class="card-body">${decision(a)}</div></div>
-        ${docsCard(a)}
-        ${a.payments.length ? `<div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Payments</h2></div><div class="table-responsive"><table class="table table-sm align-middle mb-0 small"><thead><tr><th>Reference</th><th>Date</th><th>Description</th><th>Method</th><th class="text-end">Amount</th><th>Status</th><th></th></tr></thead><tbody>${a.payments.map(p => paymentRow(p, { payer: false })).join('')}</tbody></table></div></div>` : ''}
-      </div>
-      <div class="col-lg-5">
-        ${checksCard(a)}
-        <div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Applicant details</h2></div><div class="card-body">
-          ${info('Business name', esc(a.business.name))}${info('PACRA no.', esc(a.business.pacra))}${info('ZRA TPIN', esc(a.business.tpin))}${info('Location', esc([a.business.town, a.business.province].join(', ')))}${info('Address', esc(a.business.address || '—'))}
-          ${info('Contact', esc(`${a.contact.name}, ${a.contact.position}`))}${info('Director', esc(`${a.director.name} · ${a.director.nrc}`))}${info('Phone', esc(a.contact.phone))}${info('Email', esc(a.contact.email))}${info('Tier', tierBadge(a.business.tier))}${info('Fees on approval', K(a.fees.total))}
-        </div></div>
-      </div>
+    + `<div class="row g-3 mb-3">
+      <div class="col-lg-7"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Review and decision</h2></div><div class="card-body">${decision(a)}</div></div></div>
+      <div class="col-lg-5 fit-col">${checksCard(a)}</div>
     </div>
-    ${auditCard(a.audit)}`;
+    <div class="row g-3">
+      <div class="col-lg-7"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Applicant details</h2></div><div class="card-body">
+        ${info('Business name', esc(a.business.name))}${info('PACRA no.', esc(a.business.pacra))}${info('ZRA TPIN', esc(a.business.tpin))}${info('Location', esc([a.business.town, a.business.province].join(', ')))}${info('Address', esc(a.business.address || '—'))}
+        ${info('Contact', esc(`${a.contact.name}, ${a.contact.position}`))}${info('Director', esc(`${a.director.name} · ${a.director.nrc}`))}${info('Phone', esc(a.contact.phone))}${info('Email', esc(a.contact.email))}${info('Tier', tierBadge(a.business.tier))}${info('Fees on approval', K(a.fees.total))}
+      </div></div></div>
+      <div class="col-lg-5">${docsCard(a)}</div>
+    </div>
+    ${a.payments.length ? `<div class="card mt-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Payments</h2></div><div class="table-responsive"><table class="table table-sm align-middle mb-0 small"><thead><tr><th>Reference</th><th>Date</th><th>Description</th><th>Method</th><th class="text-end">Amount</th><th>Status</th><th></th></tr></thead><tbody>${a.payments.map(p => paymentRow(p, { payer: false })).join('')}</tbody></table></div></div>` : ''}
+    ${checksDrawer(a)}`;
 }
 const appAction = (path, body) => adm(`/applications/${encodeURIComponent(CUR_APP.ref)}/${path}`, { method: 'POST', body });
 function recommendApp() {

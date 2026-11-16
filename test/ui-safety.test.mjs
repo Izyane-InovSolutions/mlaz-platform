@@ -119,8 +119,15 @@ test('handler names in markup come from this source code, never from data', () =
   const settings = ALL.find(([f]) => f.endsWith('admin/settings/settings.js'))[1];
   for (const m of settings.matchAll(/editBtn\(\[([^,\]]+)/g)) assert.match(m[1], /^'\w+'$/, 'editBtn names literal handlers');
   // calls (not the definitions) of the helpers that take a setter name: the rest of the line names a literal setter
-  for (const m of ALL.flatMap(([, c]) => [...c.matchAll(/\b(?:pager|pills|searchBox)\((?!r, fn\)|items, active, fn\)|value, fn, ph\))[^\n]*/g)])) {
-    assert.match(m[0], /'set\w+'/, `pager/pills/searchBox take a literal setter: ${m[0]}`);
+  // (listToolbar hands its two setters straight on to filterMenu and searchBox; its own callers are checked below.)
+  for (const m of ALL.flatMap(([, c]) => [...c.matchAll(/\b(?:pager|pills|searchBox|filterMenu)\((?!r, fn\)|items, active, fn\)|value, fn, ph\)|filters, active, filterFn, label\)|q, searchFn, placeholder, )[^\n]*/g)])) {
+    assert.match(m[0], /'set\w+'/, `pager/pills/searchBox/filterMenu take a literal setter: ${m[0]}`);
+  }
+  const toolbars = ALL.flatMap(([, c]) => [...c.matchAll(/\blistToolbar\(\{[^\n]*/g)]);
+  assert.ok(toolbars.length, 'the scan finds the listToolbar calls');
+  for (const m of toolbars) {
+    assert.match(m[0], /filterFn: 'set\w+'/, `listToolbar takes a literal filter setter: ${m[0]}`);
+    assert.match(m[0], /searchFn: 'set\w+'/, `listToolbar takes a literal search setter: ${m[0]}`);
   }
   for (const [f, c] of ALL) for (const m of c.matchAll(/\binvoke\(([^,)]+)/g)) {
     assert.ok(f.endsWith('core/events.js') || /SEARCH_SETTERS\.includes\(fn\)\) invoke\(fn/.test(c), `${f}: invoke(${m[1]}) without an allowlist`);
