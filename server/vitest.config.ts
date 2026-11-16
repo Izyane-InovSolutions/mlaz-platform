@@ -25,6 +25,7 @@ export default defineConfig({
       CORS_ORIGINS: 'http://localhost:5173',
     },
     globalSetup: './test/global-setup.ts',
+    setupFiles: ['./test/setup.ts'],
     fileParallelism: false, // the files share one database
     testTimeout: 30_000,
     hookTimeout: 60_000,

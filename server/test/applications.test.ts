@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { prisma } from '../src/lib/db.js';
-import { addYears, isoDate, today } from '../src/lib/dates.js';
-import { reconcilePending } from '../src/services/payments.js';
+import { prisma } from '../src/shared/db.js';
+import { addYears, isoDate, today } from '../src/shared/dates.js';
+import { reconcilePending } from '../src/modules/payments/index.js';
 import { PASSWORD, PDF, STAFF, as, form, getApp, resetDb, tokenFromEmail } from './helpers.js';
 
 const applicant = {

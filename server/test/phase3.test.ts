@@ -10,14 +10,14 @@ import vm from 'node:vm';
 import type { FastifyInstance } from 'fastify';
 import jwt from 'jsonwebtoken';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildApp } from '../src/app.js';
+import { buildApp } from '../src/platform/http/app.js';
 import { config } from '../src/config.js';
-import { prisma } from '../src/lib/db.js';
-import { storage } from '../src/lib/storage.js';
-import { sha256 } from '../src/lib/tokens.js';
-import { maxFileBytes, uploadStats } from '../src/lib/uploads.js';
-import { logLineFor } from '../src/providers/messaging.js';
-import { LIMITS } from '../src/services/accounts.js';
+import { prisma } from '../src/shared/db.js';
+import { storage } from '../src/modules/documents/infrastructure/storage.js';
+import { sha256 } from '../src/shared/tokens.js';
+import { maxFileBytes, uploadStats } from '../src/modules/documents/presentation/multipart.js';
+import { logLineFor } from '../src/modules/communications/infrastructure/messaging.js';
+import { LIMITS } from '../src/modules/identity/index.js';
 import { PASSWORD, PDF, STAFF, bearer, getApp, login, makeMember, refreshWith, resetDb, tokenFromEmail } from './helpers.js';
 
 const STORAGE = path.resolve(config.STORAGE_DIR);
@@ -365,9 +365,10 @@ describe('R2: uploads are streamed, limited and cleaned up', () => {
 
   /**
    * Sends a multipart upload over a real socket, streaming `size` bytes per file (the head, then filler). With
-   * `stopAfter`, sending stops after that many file bytes: 'stall' keeps the connection open, 'abort' drops it.
+   * `stopAfter`, sending stops after that many file bytes: 'stall' keeps the connection open, 'abort' drops it. With
+   * `hold`, sending pauses after `hold.after` file bytes until `hold.until` settles, then carries on to the end.
    */
-  function upload(url: string, fields: Record<string, string>, parts: Part[], o: { auth?: string | null; stopAfter?: number; mode?: 'stall' | 'abort'; contentLength?: number } = {}) {
+  function upload(url: string, fields: Record<string, string>, parts: Part[], o: { auth?: string | null; stopAfter?: number; mode?: 'stall' | 'abort'; contentLength?: number; hold?: { after: number; until: Promise<unknown> } } = {}) {
     const heads = parts.map(p => Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${p.field}"; filename="${p.filename}"\r\nContent-Type: ${p.type ?? 'application/pdf'}\r\n\r\n`));
     const pre = Buffer.from(Object.entries(fields).map(([k, v]) => `--${B}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`).join(''));
     const tail = Buffer.from(`--${B}--\r\n`);
@@ -390,7 +391,7 @@ describe('R2: uploads are streamed, limited and cleaned up', () => {
         });
       };
       await write(pre);
-      let sent = 0;
+      let sent = 0, held = false;
       for (const [i, p] of parts.entries()) {
         await write(heads[i]);
         let left = p.size;
@@ -400,6 +401,7 @@ describe('R2: uploads are streamed, limited and cleaned up', () => {
             if (o.mode === 'abort') req.destroy(); // the client gives up mid-file
             return; // or stalls with the connection open
           }
+          if (o.hold && !held && sent + piece.length > o.hold.after) { held = true; await o.hold.until; }
           await write(piece);
           sent += piece.length; left -= piece.length;
         }
@@ -496,7 +498,7 @@ describe('R2: uploads are streamed, limited and cleaned up', () => {
 
   it('cuts off a stalled upload after the timeout and cleans up', async () => {
     const { response } = renewal(108, { size: 1024 * 1024 }, { stopAfter: 256 * 1024, mode: 'stall' });
-    expect(await until(() => filesIn(TMP).length === 1, 2000)).toBe(true);
+    expect(await until(() => filesIn(TMP).length === 1, 8000)).toBe(true); // well within the 10-second cut-off
     const r = await response; // the server ends it after UPLOAD_TIMEOUT_SECONDS
     expect(typeof status(r) === 'string' || status(r) === 408).toBe(true);
     expect(await until(() => uploadStats().active === 0 && filesIn(TMP).length === 0)).toBe(true);
@@ -521,10 +523,25 @@ describe('R2: uploads are streamed, limited and cleaned up', () => {
       peak = Math.max(peak, live() - baseline);
       peakTemp = Math.max(peakTemp, uploadStats().tempBytes);
     }, 100);
-    const runs = [1, 2, 3].map(n => upload('/public/applications', fields(n), files, { auth: null }));
-    // All slots are taken while they stream, so a further upload is turned away.
-    expect(await until(() => uploadStats().active === config.UPLOAD_MAX_CONCURRENT, 3000)).toBe(true);
-    const extra = await renewal(109).response;
+    // Each upload pauses after its first megabyte until the extra request below has been answered, so its slot is
+    // certainly still taken then. Without the pause this was a race: on a fast or idle machine the three uploads could
+    // finish while the extra request was still being authenticated (a database round trip), and it was then accepted.
+    // The pause lengthens each upload, and the whole-upload cut-off (UPLOAD_TIMEOUT_SECONDS, 10 s in tests) would then
+    // reset them on a busy machine. That cut-off has its own test above; here it is lifted for these uploads only.
+    const cutOff = config.UPLOAD_TIMEOUT_SECONDS;
+    config.UPLOAD_TIMEOUT_SECONDS = 120;
+    let release = () => {};
+    const gate = new Promise<void>(r => { release = r; });
+    const runs = [1, 2, 3].map(n => upload('/public/applications', fields(n), files, { auth: null, hold: { after: 1024 * 1024, until: gate } }));
+    let extra: Result;
+    try {
+      // All slots are taken while they stream, so a further upload is turned away.
+      expect(await until(() => uploadStats().active === config.UPLOAD_MAX_CONCURRENT, 15_000)).toBe(true);
+      extra = await renewal(109).response;
+    } finally {
+      release();
+      config.UPLOAD_TIMEOUT_SECONDS = cutOff; // read when an upload starts, so the three keep theirs
+    }
     expect(status(extra)).toBe(503);
     expect(json(extra).error.code).toBe('UPLOADS_BUSY');
     const results = await Promise.all(runs.map(r => r.response));
@@ -598,7 +615,7 @@ describe('nightly pruning of sign-in records', () => {
   beforeAll(resetDb);
 
   it('deletes expired sessions, codes and idle counters, and keeps anything still in force', async () => {
-    const { pruneAuthRecords } = await import('../src/jobs/runner.js');
+    const { pruneAuthRecords } = await import('../src/modules/identity/index.js');
     const u = await prisma.user.findUniqueOrThrow({ where: { email: STAFF.officer } });
     const old = new Date(Date.now() - 40 * 864e5), soon = new Date(Date.now() + 864e5);
     const dead = await prisma.authSession.create({ data: { userId: u.id, createdAt: old, expiresAt: old } });

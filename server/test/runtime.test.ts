@@ -1,14 +1,14 @@
 // Runtime behaviour: health probes, request ids, the last-resort error response, and the background job runner.
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildApp } from '../src/app.js';
-import { prisma } from '../src/lib/db.js';
+import { buildApp } from '../src/platform/http/app.js';
+import { prisma } from '../src/shared/db.js';
 import { getApp } from './helpers.js';
 
 // The runner's jobs are replaced so their timing and failures can be controlled; the real ones are tested elsewhere.
 const jobs = vi.hoisted(() => ({ outbox: vi.fn(), reconcile: vi.fn(), expire: vi.fn() }));
-vi.mock('../src/services/notifications.js', async real => ({ ...(await real<object>()), processOutbox: jobs.outbox }));
-vi.mock('../src/services/payments.js', async real => ({ ...(await real<object>()), reconcilePending: jobs.reconcile, expireStale: jobs.expire }));
-const { startJobs } = await import('../src/jobs/runner.js');
+vi.mock('../src/modules/communications/index.js', async real => ({ ...(await real<object>()), processOutbox: jobs.outbox }));
+vi.mock('../src/modules/payments/index.js', async real => ({ ...(await real<object>()), reconcilePending: jobs.reconcile, expireStale: jobs.expire }));
+const { startJobs } = await import('../src/platform/jobs/scheduler.js');
 
 afterEach(() => vi.restoreAllMocks());
 

@@ -1,7 +1,7 @@
 # MLAZ platform API
 
 Backend for the Money Lenders Association of Zambia membership platform (the prototype UI in `../src`).
-Node.js 22+, TypeScript, Fastify 5, PostgreSQL, Prisma 7.
+Node.js 24, TypeScript, Fastify 5, PostgreSQL, Prisma 7.
 
 ## Run it
 
@@ -32,17 +32,20 @@ Demo accounts (password `Mlaz@2026demo`, or `SEED_PASSWORD`):
 
 ```
 src/
-  app.ts            Fastify setup: security headers, CORS, rate limits, uploads, error format, routes
   index.ts          starts the server, then the background jobs; graceful shutdown
   config.ts         environment variables, validated at startup
-  lib/              database client, auth (argon2 + JWT), role permissions, uploads, storage, audit, dates
-  services/         business rules; one file per area (applications, membership, payments, events, ...)
-  providers/        swappable adapters: payment gateway, credit bureau, email/SMS
-  routes/           HTTP endpoints: auth, public, portal (members), admin-* (Secretariat), webhooks
-  jobs/runner.ts    outbox delivery, payment settlement, nightly lapse/expiry/reminders
+  platform/         the composition root (modules.ts), the Fastify app (http/) and the job scheduler (jobs/)
+  modules/          twelve business modules (identity, membership, applications, payments, events, finance, lending,
+                    communications, documents, administration, audit, reporting), each with domain/, application/,
+                    infrastructure/ and presentation/ layers, a public index.ts and a module.ts that registers routes
+  shared/           no business rules: database client and locks, errors, validation, dates, money, tokens, CSV, PDF
 prisma/             schema, migrations, seed
-test/               API tests (vitest + fastify.inject on a real Postgres)
+test/               API tests (vitest + fastify.inject on a real Postgres), domain unit tests, architecture tests
 ```
+
+The layers, the rules between modules and how they are enforced: [docs/architecture.md](../docs/architecture.md).
+What each module owns and offers: [docs/backend-modules.md](../docs/backend-modules.md). Why it is built this way:
+[docs/decisions.md](../docs/decisions.md).
 
 ### Rules the backend enforces
 
@@ -99,7 +102,7 @@ Every item below is enforced on the server and covered by tests (`test/security.
 - Invite and reset links are single-use, hashed at rest, short-lived (1 hour for resets), and only the newest one works.
 
 **Access control**
-- Every console route checks a role permission (`src/lib/rbac.ts`). Maker-checker is enforced server-side. Search and
+- Every console route checks a role permission (`modules/identity/domain/roles.ts`). Maker-checker is enforced server-side. Search and
   the dashboard only return what the role can open (no application pipeline or money figures for other roles).
 - Members only reach their own records (payments, documents, loans, registrations). They can edit contact details but
   not their business name, location or registration numbers. The credit bureau and event registration need good standing.
@@ -156,7 +159,7 @@ The log email/SMS drivers redact one-time links in every environment.
   `proxy_request_buffering off;` `client_body_timeout 60s;` `proxy_read_timeout 150s;`. Never serve `STORAGE_DIR` or
   `UPLOAD_TMP_DIR` as static files.
 - The UI's CSP (`vercel.json`) allows scripts only from its own origin: no inline scripts, inline event handlers,
-  `javascript:` URLs or `eval` (pages use delegated `data-on-*` handlers, see `src/ui.js`). The dev server and
+  `javascript:` URLs or `eval` (pages use delegated `data-on-*` handlers, see `src/core/events.js`). The dev server and
   `vite preview` send the same policy. To collect violation reports in production, add
   `report-uri https://<api-domain>/api/csp-report` to it once the API domain is fixed, and tighten `connect-src` to
   that domain. `style-src` still allows `'unsafe-inline'` because the markup uses `style` attributes.
@@ -185,7 +188,7 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 `{tickets, method?, msisdn?}` · `DELETE /events/:id/registration` · `GET /announcements` · `GET /resources` · `GET /resources/:id/download` ·
 `GET /documents/:id` · `GET|POST /loans` · `PATCH|DELETE /loans/:id` · `GET|POST /credit-checks` `{nrc, purpose, consent: true}`
 
-**Secretariat** `/api/admin` (staff token; each route checks a permission, see `src/lib/rbac.ts`):
+**Secretariat** `/api/admin` (staff token; each route checks a permission, see `src/modules/identity/domain/roles.ts`):
 - `GET /dashboard` · `GET /nav-counts` (sidebar badges) · `GET /search?q=` · `GET /documents/:id`
 - Members: `GET /members` (filters `q, status, tier, province, filter=good_standing|dues_due|mof_expired`) · `GET /members/export.csv` ·
   `GET|PATCH /members/:number` · `POST /members/:number/suspend|reinstate|reminders|offline-dues|users` · `GET /members/:number/certificate.pdf`
@@ -206,8 +209,8 @@ Money is a number in kwacha; dates are ISO strings (calendar dates come back as 
 
 ## Connecting the UI
 
-**Done:** every page uses the API through `src/api.js` and `src/checkout.js`: the public website, sign-in and
-set-password, the Secretariat console (`src/admin.js`) and the member portal (`src/member.js`). The prototype's
+**Done:** every page uses the API through `src/core/api/client.js` (the only place that calls `fetch`): the public website, sign-in and
+set-password, the Secretariat console (`src/features/admin/`) and the member portal (`src/features/member/`). The prototype's
 `localStorage` demo store has been removed. For reference, this is how the prototype was moved over:
 
 1. Add a small API client (base URL from `import.meta.env.VITE_API_URL`, bearer token, refresh on 401).
@@ -224,7 +227,7 @@ set-password, the Secretariat console (`src/admin.js`) and the member portal (`s
 
 ## Before production
 
-These are simulated or stubbed behind interfaces in `src/providers/` and need real integrations:
+These are simulated or stubbed behind interfaces in each module's `infrastructure/` folder and need real integrations:
 
 - **Payment gateway** (MTN/Airtel/Zamtel mobile money, card, iZyane Pay QR): implement `PaymentProvider` and set `PAYMENT_PROVIDER`. The adapter must use the payment `ref` as its idempotency key and
   must not retry without it; `initiate()` already times out (`PAYMENT_INITIATE_TIMEOUT_SECONDS`) and honours late successes
@@ -232,7 +235,7 @@ These are simulated or stubbed behind interfaces in `src/providers/` and need re
   settles payments after `SANDBOX_SETTLE_SECONDS`; a number ending in `0000` is declined.
 - **SMS gateway** (`SmsSender`). Email works with any SMTP server via `SMTP_URL`; without it, messages are logged.
 - **Credit bureau API** (`CreditBureau`), plus the bureau's terms on consent and permissible purpose.
-- **ZRA TPIN lookup**: the application check currently validates the format only (`checks()` in `services/applications.ts`).
+- **ZRA TPIN lookup**: the application check currently validates the format only (`tpinLooksValid` in `modules/applications/domain/journey.ts`).
 - **Documents**: set `STORAGE_DRIVER=s3` for any S3-compatible bucket.
 - Run behind HTTPS. Set `CORS_ORIGINS` and `PUBLIC_APP_URL` to the deployed UI, and use strong `JWT_SECRET`/`WEBHOOK_SECRET`
   (the server refuses to start in production with the placeholders).

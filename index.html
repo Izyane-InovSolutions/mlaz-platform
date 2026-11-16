@@ -7,11 +7,14 @@
 <meta name="referrer" content="no-referrer">
 <title>MLAZ — Money Lenders Association of Zambia</title>
 <meta name="description" content="Membership, accreditation and lender verification for the Money Lenders Association of Zambia.">
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/mlaz-logo.png" type="image/png">
+<link rel="apple-touch-icon" href="/mlaz-logo.png">
 </head>
 <body>
 <div id="root"></div>
-<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts" style="z-index:1090"></div>
+<div class="toast-container z-toast position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+<!-- Page changes are read out to screen-reader users from here (src/shared/ui/a11y.js). -->
+<div id="announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

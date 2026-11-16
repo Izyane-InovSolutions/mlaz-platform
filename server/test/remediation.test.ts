@@ -3,14 +3,14 @@ import { readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { config, productionProblems } from '../src/config.js';
-import { SYSTEM } from '../src/lib/audit.js';
-import { currentStep, totpAt } from '../src/lib/crypto.js';
-import { addDays, isoDate, today } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
-import { logLineFor } from '../src/providers/messaging.js';
-import { RESET_MIN_MS } from '../src/services/accounts.js';
-import * as applications from '../src/services/applications.js';
-import { settle } from '../src/services/payments.js';
+import { SYSTEM } from '../src/shared/actor.js';
+import { currentStep, totpAt } from '../src/modules/identity/domain/totp.js';
+import { addDays, isoDate, today } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
+import { logLineFor } from '../src/modules/communications/infrastructure/messaging.js';
+import { RESET_MIN_MS } from '../src/modules/identity/index.js';
+import * as applications from '../src/modules/applications/index.js';
+import { settle } from '../src/modules/payments/index.js';
 import { PASSWORD, PDF, STAFF, as, form, getApp, makeMember, resetDb, tempUpload } from './helpers.js';
 
 const applicant = {
@@ -41,7 +41,7 @@ const login = async (email: string, password: string, remoteAddress: string) =>
 /* ================= M1, M2, L8: production configuration ================= */
 
 describe('production start-up checks (M1, M2, L8)', () => {
-  const strong = { ...config, JWT_SECRET: 'Zq8#vW2p!Lr5tY9u@Kx3bN7m$Hc4jD6f', WEBHOOK_SECRET: 'Pa7&Qs1!Dw9^Er3*Ty5(Ui8)Op2_Lk4m', DATA_ENCRYPTION_KEY: 'Mn3$Bv6%Cx9&Za2*Sd5(Fg8)Hj1!Kl4q', ALLOW_SANDBOX_IN_PRODUCTION: true, COOKIE_SECURE: true, CORS_ORIGINS: ['https://app.mlaz.org.zm'], PUBLIC_APP_URL: 'https://app.mlaz.org.zm' };
+  const strong = { ...config, JWT_SECRET: 'Zq8#vW2p!Lr5tY9u@Kx3bN7m$Hc4jD6f', WEBHOOK_SECRET: 'Pa7&Qs1!Dw9^Er3*Ty5(Ui8)Op2_Lk4m', DATA_ENCRYPTION_KEY: 'Mn3$Bv6%Cx9&Za2*Sd5(Fg8)Hj1!Kl4q', ALLOW_SANDBOX_IN_PRODUCTION: true, COOKIE_SECURE: true, CORS_ORIGINS: ['https://app.mlaz.org.zm'], PUBLIC_APP_URL: 'https://app.mlaz.org.zm', SMS_DRIVER: 'none' as const };
 
   it('refuses to start without SMTP, without required staff 2FA, or without an explicit proxy setting', () => {
     const problems = productionProblems({ ...strong, SMTP_URL: '', REQUIRE_STAFF_2FA: false }, {}).join('\n');

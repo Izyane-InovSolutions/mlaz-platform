@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { addDays, isoDate, today } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
-import { reconcilePending } from '../src/services/payments.js';
+import { addDays, isoDate, today } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
+import { reconcilePending } from '../src/modules/payments/index.js';
 import { STAFF, as, makeMember, resetDb } from './helpers.js';
 
 describe('events', () => {

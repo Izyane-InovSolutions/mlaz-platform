@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { runNightly } from '../src/jobs/runner.js';
-import { addDays, addYears, isoDate, today } from '../src/lib/dates.js';
-import { prisma } from '../src/lib/db.js';
+import { runNightly } from '../src/platform/jobs/scheduler.js';
+import { addDays, addYears, isoDate, today } from '../src/shared/dates.js';
+import { prisma } from '../src/shared/db.js';
 import { PDF, STAFF, as, form, getApp, makeMember, resetDb } from './helpers.js';
 
 describe('nightly membership rules and MoF renewals', () => {

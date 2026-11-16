@@ -142,6 +142,15 @@ model Counter {
   value Int
 }
 
+// A background job that must run on one instance at a time (payment reconciliation) holds a lease here. The holder's
+// random `owner` token is required to renew or release it; a holder that crashes loses it when `expiresAt` passes.
+model JobLease {
+  name       String   @id
+  owner      String
+  expiresAt  DateTime
+  acquiredAt DateTime @default(now())
+}
+
 /* ================= MEMBERSHIP ================= */
 
 enum MemberStatus {
@@ -263,6 +272,7 @@ model MofRenewal {
   reviewNote   String?
 
   @@index([status])
+  @@index([memberId, status]) // the member's pending renewal, read on every portal page
 }
 
 // One row per paid membership period.
@@ -442,6 +452,7 @@ model Payment {
   @@index([memberId])
   @@index([applicationId])
   @@index([createdAt])
+  @@index([status, paidAt]) // collections by date: dashboard, finance summary, collections report
 }
 
 enum LineType {
@@ -676,6 +687,6 @@ model AuditLog {
   note       String    @default("")
   ip         String?
 
-  @@index([target])
+  @@index([target, at]) // a record's trail, newest first
   @@index([at])
 }
