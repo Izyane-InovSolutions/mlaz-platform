@@ -1,0 +1,5 @@
+{
+  "$comment": "Dependency vulnerability policy, read by scripts/audit.mjs. See docs/QUALITY_CHECKS.md. Advisories at or above `threshold` block pushes and CI unless listed in `exceptions` with: id (GHSA-...), package, optional project (ui|server), reason, approvedBy and expires (YYYY-MM-DD, at most 90 days ahead). Expired exceptions stop applying.",
+  "threshold": "high",
+  "exceptions": []
+}

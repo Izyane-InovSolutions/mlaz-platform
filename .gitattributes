@@ -1,0 +1,7 @@
+# Store text with LF line endings in the repository (Windows checkouts may still use CRLF via core.autocrlf).
+* text=auto
+# Shell scripts and Git hooks must keep LF in the working tree too, or sh fails on Windows checkouts.
+*.sh text eol=lf
+.husky/* text eol=lf
+*.png binary
+*.ico binary

@@ -1,0 +1,4 @@
+# Runs the full quality and security suite before every push; any failure stops the push.
+# Git passes the refs being pushed on stdin; scripts/check.mjs scans exactly those commits for secrets and whitespace.
+# See docs/QUALITY_CHECKS.md. Emergency bypass (exceptional, CI still enforces everything): git push --no-verify
+node scripts/check.mjs pre-push

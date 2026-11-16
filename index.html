@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Tracking and set-password links carry one-time tokens: never send the page address to other sites. -->
+<meta name="referrer" content="no-referrer">
 <title>MLAZ — Money Lenders Association of Zambia</title>
 <meta name="description" content="Membership, accreditation and lender verification for the Money Lenders Association of Zambia.">
 <link rel="icon" href="/mlaz-logo.png" type="image/png">
@@ -10,7 +12,9 @@
 </head>
 <body>
 <div id="root"></div>
-<div class="toast-container position-fixed bottom-0 end-0 p-3" id="toasts" style="z-index:1090"></div>
+<div class="toast-container z-toast position-fixed bottom-0 end-0 p-3" id="toasts"></div>
+<!-- Page changes are read out to screen-reader users from here (src/shared/ui/a11y.js). -->
+<div id="announcer" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

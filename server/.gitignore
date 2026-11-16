@@ -1,0 +1,8 @@
+node_modules
+dist
+storage
+storage-test
+.env
+src/generated
+coverage
+upload-tmp-test/
