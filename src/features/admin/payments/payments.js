@@ -2,45 +2,33 @@ import { api } from '../../../core/api/client.js';
 import { can } from '../../../core/auth/permissions.js';
 import { EL, expose, on } from '../../../core/events.js';
 import { rerender } from '../../../core/navigation.js';
-import { K, KM, asyncModal, busy, done, empty, esc, fail, fmtDate, fmtDateTime, icon, lower, modal, note, pageHeader, pager, safeFilename, safeUrl, statCard, tableCard, today } from '../../../shared/ui/index.js';
+import { K, KM, asyncModal, busy, done, esc, fail, fmtDateTime, icon, lower, modal, note, pageHeader, pager, safeFilename, safeUrl, statCard, tableCard } from '../../../shared/ui/index.js';
 import { documentPreview, documentUrl, mountPreview, payBadge } from '../../common/index.js';
 import { adm, qs } from '../shared/api.js';
 import { listToolbar, paymentRow } from '../shared/ui.js';
 
-/* ================= PAYMENTS & EXPENSES ================= */
+/* ================= PAYMENTS ================= */
 const PTABS = [['', 'All'], ['review', 'Awaiting review'], ['PENDING', 'Pending'], ['SUCCESS', 'Successful'], ['FAILED', 'Failed']];
 let PS = { tab: '', q: '', page: 1 };
 const setPTab = k => { PS = { ...PS, tab: k, page: 1 }; rerender(); };
 const setPQuery = q => { PS = { ...PS, q, page: 1 }; rerender(); };
 const setPPage = p => { PS.page = p; rerender(); };
-let EXPENSES = [];
 
 export async function payments() {
-  const canExp = can('expenses:read');
-  const [s, list, exp] = await Promise.all([
+  const [s, list] = await Promise.all([
     adm('/payments/summary'),
     adm(`/payments${qs({ status: PS.tab === 'review' ? '' : PS.tab, awaitingReview: PS.tab === 'review' ? 'true' : '', q: PS.q, page: PS.page, pageSize: 20 })}`),
-    canExp ? adm('/expenses') : null,
   ]);
-  EXPENSES = exp?.items || [];
-  const expensesCard = canExp ? `<div class="card"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Expenses</h2>${can('expenses:write') ? `<button class="btn btn-sm btn-primary" ${on('click', 'addExpense')}>${icon('plus-lg', 'me-1')} Add expense</button>` : ''}</div>
-      <div class="table-responsive mh-520"><table class="table table-sm table-hover align-middle small mb-0"><thead class="sticky-top"><tr><th>Expense</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
-      ${EXPENSES.map(x => `<tr><td><div class="fw-medium">${esc(x.description)}</div><div class="text-body-secondary">${esc(x.category)} · ${esc(x.payee)} · ${fmtDate(x.date)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event.name)}</div>` : ''}</td>
-        <td class="text-end fw-medium text-nowrap">${K(x.amount)}</td><td class="text-end"><button class="btn btn-sm btn-light" title="Details" ${on('click', 'viewExpense', x.ref)}>${icon('three-dots')}</button></td></tr>`).join('') || `<tr><td colspan="3">${empty('No expenses recorded.', 'wallet2')}</td></tr>`}
-      </tbody>${EXPENSES.length ? `<tfoot><tr class="fw-semibold"><td>Total</td><td class="text-end text-nowrap">${K(exp.total)}</td><td></td></tr></tfoot>` : ''}</table></div></div>` : '';
   return pageHeader('Payments & dues', 'Joining fees, annual dues and event tickets across mobile money, card and bank',
     `${can('payments:confirm') ? `<button class="btn btn-outline-secondary" ${on('click', 'reconcile', EL)}>${icon('arrow-repeat', 'me-1')} Reconcile</button>` : ''}${can('comms:write') ? `<button class="btn btn-primary" ${on('click', 'broadcast', 'DUES_DUE')}>${icon('envelope', 'me-1')} Send dues reminders</button>` : ''}`)
-    + `<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xxl-5 g-3 mb-4">
+    + `<div class="row row-cols-1 row-cols-sm-2 row-cols-lg-3 row-cols-xxl-4 g-3 mb-4">
       <div class="col">${statCard('Collected (YTD)', KM(s.collectedYtd), 'successful payments this year', 'cash-stack', 'primary')}</div>
       <div class="col">${statCard('Collected today', K(s.collectedToday), `${Number(s.transactionsToday)} transaction${s.transactionsToday === 1 ? '' : 's'}`, 'graph-up-arrow', 'success')}</div>
       <div class="col">${statCard('Dues due', Number(s.duesDue), 'members', 'hourglass-split', 'warning')}</div>
       <div class="col">${statCard('Via mobile money', `${Number(s.mobileMoneyShare)}%`, 'of payments this year', 'phone', 'info')}</div>
-      ${canExp ? `<div class="col">${statCard('Expenses (YTD)', KM(s.expensesYtd), `${Number(s.expensesCount)} recorded · ${K(s.expensesThisMonth)} this month`, 'wallet2', 'danger')}</div>` : ''}
-    </div>
-    <div class="row g-3"><div class="col-xl-8">`
+    </div>`
     + tableCard(['Reference', 'Payer', 'Description', 'Method', '#Amount', 'Status', '#'], list.items.map(p => paymentRow(p)).join(''), 'No payments here.', pager(list, 'setPPage'),
-      listToolbar({ filters: PTABS, active: PS.tab, filterFn: 'setPTab', label: 'Show', q: PS.q, searchFn: 'setPQuery', placeholder: 'Search by reference, payer or bank reference' }))
-    + `</div><div class="col-xl-4">${expensesCard}</div></div>`;
+      listToolbar({ filters: PTABS, active: PS.tab, filterFn: 'setPTab', label: 'Show', q: PS.q, searchFn: 'setPQuery', placeholder: 'Search by reference, payer or bank reference' }));
 }
 
 async function reconcile(btn) {
@@ -89,37 +77,4 @@ async function reviewPayment(ref) {
   }), 350); });
 }
 
-async function addExpense() {
-  let meta, evs;
-  try { [meta, evs] = await Promise.all([adm('/expenses/categories'), can('events:read') ? adm('/events?past=true') : []]); } catch (e) { return fail(e); }
-  const opts = list => list.map(o => `<option>${esc(o)}</option>`).join('');
-  asyncModal({
-    title: 'Add expense', confirmText: 'Add expense',
-    body: `<div class="row g-3">
-      <div class="col-md-6"><label class="form-label small fw-medium">Category</label><select class="form-select" name="category">${opts(meta.categories)}</select></div>
-      <div class="col-md-6"><label class="form-label small fw-medium">Date paid</label><input class="form-control" type="date" name="date" value="${today()}" max="${today()}" required></div>
-      <div class="col-12"><label class="form-label small fw-medium">Description</label><input class="form-control" name="description" required placeholder="e.g. Conference room hire, 1 day"><div class="invalid-feedback">Required.</div></div>
-      <div class="col-12"><label class="form-label small fw-medium">Paid to</label><input class="form-control" name="payee" required placeholder="Supplier or person"><div class="invalid-feedback">Required.</div></div>
-      <div class="col-md-6"><label class="form-label small fw-medium">Amount (K)</label><input class="form-control" type="number" name="amount" min="0.01" step="0.01" required><div class="invalid-feedback">Enter an amount above zero.</div></div>
-      <div class="col-md-6"><label class="form-label small fw-medium">Payment method</label><select class="form-select" name="method">${opts(meta.methods)}</select></div>
-      <div class="col-12"><label class="form-label small fw-medium">Event <span class="text-body-secondary fw-normal">(optional)</span></label><select class="form-select" name="eventId"><option value="">Not linked to an event</option>${evs.map(e => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('')}</select></div>
-    </div>`,
-    onSubmit: async v => { await adm('/expenses', { method: 'POST', body: { ...v, amount: Number(v.amount), eventId: v.eventId || null } }); done('Expense added'); },
-  });
-}
-function viewExpense(ref) {
-  const x = EXPENSES.find(e => e.ref === ref); if (!x) return;
-  const row = (k, v) => `<div class="d-flex justify-content-between gap-3 py-2 border-bottom small"><span class="text-body-secondary">${k}</span><span class="fw-medium text-end">${v}</span></div>`;
-  const el = modal({
-    title: esc(x.description),
-    body: `${row('Reference', `<span class="font-monospace">${esc(x.ref)}</span>`)}${row('Category', esc(x.category))}${row('Paid to', esc(x.payee))}${row('Amount', K(x.amount))}${row('Date paid', fmtDate(x.date))}${row('Method', esc(x.method))}${row('Event', x.event ? esc(x.event.name) : '—')}${row('Recorded by', esc(x.recordedBy))}`,
-    footer: `${can('expenses:write') ? '<button class="btn btn-outline-danger me-auto" data-delete>Delete</button>' : ''}<button class="btn btn-light" data-bs-dismiss="modal">Close</button>`,
-  });
-  el.querySelector('[data-delete]')?.addEventListener('click', () => { el.close(); setTimeout(() => asyncModal({
-    title: 'Delete expense', confirmText: 'Delete', tone: 'danger',
-    body: `<p class="mb-0">Delete <b>${esc(x.description)}</b> (${K(x.amount)})? It stops counting in totals and the deletion is recorded in the audit trail.</p>`,
-    onSubmit: async () => { await adm(`/expenses/${encodeURIComponent(x.ref)}`, { method: 'DELETE' }); done('Expense deleted'); },
-  }), 300); });
-}
-
-expose({ setPTab, setPQuery, setPPage, reconcile, reviewPayment, addExpense, viewExpense });
+expose({ setPTab, setPQuery, setPPage, reconcile, reviewPayment });

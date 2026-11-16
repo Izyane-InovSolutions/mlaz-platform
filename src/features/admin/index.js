@@ -6,6 +6,7 @@ import { communications } from './communications/index.js';
 import { dashboard } from './dashboard/index.js';
 import { directory } from './directory/index.js';
 import { events } from './events/index.js';
+import { expenses } from './expenses/index.js';
 import { members } from './members/index.js';
 import { payments } from './payments/index.js';
 import { reports } from './reports/index.js';
@@ -26,10 +27,10 @@ export async function refreshNavCounts() { try { NAV = await adm('/nav-counts');
 export const ADMIN_NAV = [
   ['Overview', [['dashboard', 'Dashboard', 'grid-1x2', null, 'dashboard:view'], ['reports', 'Reports', 'file-earmark-bar-graph', null, 'reports:read']]],
   ['Membership', [['members', 'Members', 'people', null, 'members:read'], ['applications', 'Applications', 'file-earmark-text', () => NAV.openApplications, 'applications:read'], ['certificates', 'Certificates', 'award', () => NAV.mofToVerify, 'members:read']]],
-  ['Finance', [['payments', 'Payments & dues', 'credit-card', () => NAV.bankTransfers, 'payments:read']]],
+  ['Finance', [['payments', 'Payments & dues', 'credit-card', () => NAV.bankTransfers, 'payments:read'], ['expenses', 'Expenses', 'wallet2', null, 'expenses:read']]],
   ['Engage', [['communications', 'Communications', 'megaphone'], ['events', 'Events', 'calendar-event', null, 'events:read'], ['directory', 'Public directory', 'globe', null, 'members:read']]],
   ['Configure', [['settings', 'Settings', 'gear']]],
 ];
 export const ADMIN_PAGE_PERM = Object.fromEntries(ADMIN_NAV.flatMap(([, items]) => items.map(i => [i[0], i[4]])));
 
-export const ADMIN_PAGES = { dashboard, reports, members, applications, certificates, payments, communications, events, directory, settings };
+export const ADMIN_PAGES = { dashboard, reports, members, applications, certificates, payments, expenses, communications, events, directory, settings };
