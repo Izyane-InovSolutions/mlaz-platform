@@ -4,7 +4,7 @@ import { EL, expose, on } from '../../../core/events.js';
 import { K, asyncModal, avatar, busy, done, empty, esc, fail, fmtDate, fmtDateTime, icon, infoRow as info, listItem, lower, note, pageHeader, statCard } from '../../../shared/ui/index.js';
 import { ACTIVITY, accredBadge, mofBadge, statusBadge, tierBadge } from '../../common/index.js';
 import { adm } from '../shared/api.js';
-import { DOC_KIND, auditCard, crumb, offlineFields, paymentRow, tomorrow } from '../shared/ui.js';
+import { DOC_KIND, crumb, offlineFields, paymentRow, tomorrow } from '../shared/ui.js';
 
 let CUR_MEMBER = null;
 
@@ -29,32 +29,32 @@ export async function memberDetail(number) {
         <div class="text-center mb-3">${avatar(m.name, 0, true)}<h2 class="h5 mt-3 mb-1">${esc(m.name)}</h2><div class="d-flex justify-content-center gap-1">${tierBadge(m.tier)} ${statusBadge(lower(m.status))}</div></div>
         ${info('Contact', esc(m.contactName))}${info('Phone', esc(m.contactPhone))}${info('Email', esc(m.contactEmail))}${info('ZRA TPIN', esc(m.tpin))}${info('PACRA no.', esc(m.pacra || '—'))}${info('Address', esc(m.address || '—'))}${info('Joined', fmtDate(m.joinedAt))}
         ${info('Public listing', m.goodStanding ? '<span class="text-success-emphasis">Listed, passes verification</span>' : '<span class="text-danger-emphasis">Hidden, fails verification</span>')}
-      </div></div>
-      <div class="card mt-3"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Portal users</h2>${can('members:write') ? `<button class="btn btn-sm btn-outline-primary" ${on('click', 'inviteUser', num)}>${icon('person-plus', 'me-1')} Invite</button>` : ''}</div>
-        <div class="list-group list-group-flush">${m.users.map(u => listItem('person', u.active ? 'primary' : 'secondary', `${esc(u.name)}${u.active ? '' : ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Deactivated</span>'}`,
-          `${esc(u.email)}${u.invitePending ? ' · invitation not yet accepted' : u.lastLoginAt ? ` · last signed in ${fmtDateTime(u.lastLoginAt)}` : ''}`,
-          can('members:write') ? `<button class="btn btn-sm ${u.active ? 'btn-outline-danger' : 'btn-outline-secondary'}" ${on('click', 'setPortalUser', m.number, u.id, !u.active)}>${u.active ? 'Deactivate' : 'Reactivate'}</button>` : '')).join('') || empty('No portal users yet.', 'person')}</div></div>
-      </div>
+      </div></div></div>
       <div class="col-lg-8">
         <div class="row g-3 mb-3">
           <div class="col-md-4">${statCard('MoF authorization', mofBadge(lower(m.mofStatus)), `${esc(m.mofRef)}${m.mofExpiry ? ` · expires ${fmtDate(m.mofExpiry)}` : ''}`, 'file-earmark-check', 'info')}</div>
           <div class="col-md-4">${statCard('Accreditation', accredBadge(lower(m.accreditation)), `Valid until ${fmtDate(m.validUntil)}`, 'award', 'success')}</div>
           <div class="col-md-4">${statCard('Annual dues', duesBadgeHtml, `${esc(m.tier)} · ${K(d.amount)}${d.payable ? '' : ` · next payable from ${fmtDate(d.opensOn)}`}`, 'cash-stack', 'warning')}</div>
         </div>
+        <div class="row g-3 mb-3">
+          <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Documents</h2></div><div class="list-group list-group-flush">
+            ${m.documents.map(doc => listItem(doc.kind === 'DIRECTOR_NRC' ? 'person-vcard' : doc.kind === 'PROOF_OF_PAYMENT' ? 'receipt' : 'file-earmark-text', doc.superseded ? 'secondary' : 'info', `${DOC_KIND[doc.kind] || esc(doc.kind)}${doc.superseded ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Replaced</span>' : ''}`, `${esc(doc.filename)} · ${fmtDate(doc.createdAt)}`,
+              can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'viewDoc', doc.id, `${DOC_KIND[doc.kind] || doc.kind} · ${m.name}`)}>${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents on file.', 'folder')}
+          </div></div></div>
+          <div class="col-lg-6"><div class="card h-100"><div class="card-header bg-white d-flex align-items-center"><h2 class="h6 mb-0 py-1 me-auto">Portal users</h2>${can('members:write') ? `<button class="btn btn-sm btn-outline-primary" ${on('click', 'inviteUser', num)}>${icon('person-plus', 'me-1')} Invite</button>` : ''}</div>
+            <div class="list-group list-group-flush">${m.users.map(u => listItem('person', u.active ? 'primary' : 'secondary', `${esc(u.name)}${u.active ? '' : ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Deactivated</span>'}`,
+              `${esc(u.email)}${u.invitePending ? ' · invitation not yet accepted' : u.lastLoginAt ? ` · last signed in ${fmtDateTime(u.lastLoginAt)}` : ''}`,
+              can('members:write') ? `<button class="btn btn-sm ${u.active ? 'btn-outline-danger' : 'btn-outline-secondary'}" ${on('click', 'setPortalUser', m.number, u.id, !u.active)}>${u.active ? 'Deactivate' : 'Reactivate'}</button>` : '')).join('') || empty('No portal users yet.', 'person')}</div></div></div>
+        </div>
         ${renewal ? `<div class="card mb-3 border-warning-subtle"><div class="card-header bg-warning-subtle"><h2 class="h6 mb-0 py-1">${icon('file-earmark-arrow-up', 'me-1')}MoF renewal awaiting verification</h2></div><div class="card-body">
           <p class="small mb-3">Renewed authorization <b>${esc(renewal.mofRef)}</b> uploaded ${fmtDateTime(renewal.submittedAt)}. Check it against the Ministry of Finance register, then record its expiry date.</p>
           <div class="d-flex flex-wrap gap-2">${renewal.document && can('documents:read') ? `<button class="btn btn-outline-secondary" ${on('click', 'viewDoc', renewal.document.id, `MoF renewal · ${m.name}`)}>${icon('eye', 'me-1')} View document</button>` : ''}
           ${can('renewals:verify') ? `<button class="btn btn-outline-danger" ${on('click', 'rejectRenewal', renewal.id)}>Reject</button><button class="btn btn-primary" ${on('click', 'verifyRenewal', renewal.id, renewal.mofRef)}>${icon('check-lg', 'me-1')} Verify renewal</button>` : ''}</div></div></div>` : ''}
-        <div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Documents</h2></div><div class="list-group list-group-flush">
-          ${m.documents.map(doc => listItem(doc.kind === 'DIRECTOR_NRC' ? 'person-vcard' : doc.kind === 'PROOF_OF_PAYMENT' ? 'receipt' : 'file-earmark-text', doc.superseded ? 'secondary' : 'info', `${DOC_KIND[doc.kind] || esc(doc.kind)}${doc.superseded ? ' <span class="badge bg-secondary-subtle text-secondary-emphasis">Replaced</span>' : ''}`, `${esc(doc.filename)} · ${fmtDate(doc.createdAt)}`,
-            can('documents:read') ? `<button class="btn btn-sm btn-outline-primary text-nowrap" ${on('click', 'viewDoc', doc.id, `${DOC_KIND[doc.kind] || doc.kind} · ${m.name}`)}>${icon('eye', 'me-1')} View</button>` : '')).join('') || empty('No documents on file.', 'folder')}
-        </div></div>
         <div class="card mb-3"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Payments</h2></div>
           ${m.payments.length ? `<div class="table-responsive"><table class="table table-sm align-middle mb-0 small"><thead><tr><th>Reference</th><th>Date</th><th>Description</th><th>Method</th><th class="text-end">Amount</th><th>Status</th><th></th></tr></thead><tbody>${m.payments.map(p => paymentRow(p, { payer: false })).join('')}</tbody></table></div>` : `<div class="card-body">${empty('No payments yet.', 'credit-card')}</div>`}</div>
         <div class="card"><div class="card-header bg-white"><h2 class="h6 mb-0 py-1">Activity</h2></div><div class="list-group list-group-flush">
           ${m.activity.map(a => { const [ic, tone] = ACTIVITY[a.kind] || ['dot', 'secondary']; return listItem(ic, tone, esc(a.title), `${esc(a.detail)}${a.detail ? ' · ' : ''}${fmtDateTime(a.at)}`); }).join('') || empty('No activity yet.', 'activity')}
         </div></div>
-        ${auditCard(m.audit)}
       </div>
     </div>`;
 }

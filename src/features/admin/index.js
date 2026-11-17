@@ -26,11 +26,11 @@ export async function refreshNavCounts() { try { NAV = await adm('/nav-counts');
 
 // [id, label, icon, badge, permission needed to see the page]
 export const ADMIN_NAV = [
-  ['Overview', [['dashboard', 'Dashboard', 'grid-1x2', null, 'dashboard:view'], ['reports', 'Reports', 'file-earmark-bar-graph', null, 'reports:read'], ['audit', 'Audit trail', 'clock-history', null, 'reports:read']]],
+  ['Overview', [['dashboard', 'Dashboard', 'grid-1x2', null, 'dashboard:view'], ['reports', 'Reports', 'file-earmark-bar-graph', null, 'reports:read']]],
   ['Membership', [['members', 'Members', 'people', null, 'members:read'], ['applications', 'Applications', 'file-earmark-text', () => NAV.openApplications, 'applications:read'], ['certificates', 'Certificates', 'award', () => NAV.mofToVerify, 'members:read']]],
   ['Finance', [['payments', 'Payments & dues', 'credit-card', () => NAV.bankTransfers, 'payments:read'], ['expenses', 'Expenses', 'wallet2', null, 'expenses:read']]],
   ['Engage', [['communications', 'Communications', 'megaphone'], ['events', 'Events', 'calendar-event', null, 'events:read'], ['directory', 'Public directory', 'globe', null, 'members:read']]],
-  ['Configure', [['settings', 'Settings', 'gear']]],
+  ['Configure', [['settings', 'Settings', 'gear'], ['audit', 'Audit trail', 'clock-history', null, 'reports:read']]],
 ];
 export const ADMIN_PAGE_PERM = Object.fromEntries(ADMIN_NAV.flatMap(([, items]) => items.map(i => [i[0], i[4]])));
 
