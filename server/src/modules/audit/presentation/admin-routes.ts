@@ -6,5 +6,5 @@ import { searchAuditLog } from '../application/audit-log.js';
 
 export default async function auditAdminRoutes(app: FastifyInstance) {
   app.get('/audit', { preHandler: requireStaff('reports:read') }, async req =>
-    searchAuditLog(parse(s.page.extend({ target: z.string().trim().max(60).optional(), q: z.string().trim().max(100).optional() }), req.query)));
+    searchAuditLog(parse(s.page.extend({ target: z.string().trim().max(60).optional(), actorType: z.enum(['STAFF', 'MEMBER', 'APPLICANT', 'SYSTEM']).optional(), q: z.string().trim().max(100).optional() }), req.query)));
 }

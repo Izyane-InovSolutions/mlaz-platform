@@ -1,6 +1,7 @@
 // Secretariat console. Every page loads from the API (/api/admin) and every action goes through it; buttons a role
 // may not use are hidden, and the server enforces the same permissions regardless.
 import { applications } from './applications/index.js';
+import { audit } from './audit/index.js';
 import { certificates } from './certificates/index.js';
 import { communications } from './communications/index.js';
 import { dashboard } from './dashboard/index.js';
@@ -25,7 +26,7 @@ export async function refreshNavCounts() { try { NAV = await adm('/nav-counts');
 
 // [id, label, icon, badge, permission needed to see the page]
 export const ADMIN_NAV = [
-  ['Overview', [['dashboard', 'Dashboard', 'grid-1x2', null, 'dashboard:view'], ['reports', 'Reports', 'file-earmark-bar-graph', null, 'reports:read']]],
+  ['Overview', [['dashboard', 'Dashboard', 'grid-1x2', null, 'dashboard:view'], ['reports', 'Reports', 'file-earmark-bar-graph', null, 'reports:read'], ['audit', 'Audit trail', 'clock-history', null, 'reports:read']]],
   ['Membership', [['members', 'Members', 'people', null, 'members:read'], ['applications', 'Applications', 'file-earmark-text', () => NAV.openApplications, 'applications:read'], ['certificates', 'Certificates', 'award', () => NAV.mofToVerify, 'members:read']]],
   ['Finance', [['payments', 'Payments & dues', 'credit-card', () => NAV.bankTransfers, 'payments:read'], ['expenses', 'Expenses', 'wallet2', null, 'expenses:read']]],
   ['Engage', [['communications', 'Communications', 'megaphone'], ['events', 'Events', 'calendar-event', null, 'events:read'], ['directory', 'Public directory', 'globe', null, 'members:read']]],
@@ -33,4 +34,4 @@ export const ADMIN_NAV = [
 ];
 export const ADMIN_PAGE_PERM = Object.fromEntries(ADMIN_NAV.flatMap(([, items]) => items.map(i => [i[0], i[4]])));
 
-export const ADMIN_PAGES = { dashboard, reports, members, applications, certificates, payments, expenses, communications, events, directory, settings };
+export const ADMIN_PAGES = { dashboard, reports, audit, members, applications, certificates, payments, expenses, communications, events, directory, settings };

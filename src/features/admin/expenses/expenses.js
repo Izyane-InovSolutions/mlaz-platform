@@ -1,33 +1,41 @@
 import { can } from '../../../core/auth/permissions.js';
 import { expose, on } from '../../../core/events.js';
+import { rerender } from '../../../core/navigation.js';
 import { K, KM, asyncModal, done, empty, esc, fail, fmtDate, icon, modal, pageHeader, statCard, today } from '../../../shared/ui/index.js';
 import { adm } from '../shared/api.js';
+import { listToolbar } from '../shared/ui.js';
 
 let EXPENSES = [];
+let ES = { method: '', q: '' };
+const setEMethod = method => { ES = { ...ES, method }; rerender(); };
+const setEQuery = q => { ES = { ...ES, q }; rerender(); };
 
 export async function expenses() {
   const result = await adm('/expenses');
   EXPENSES = result.items;
   const methods = [['Bank transfer', 'bank'], ['Card', 'credit-card'], ['Mobile money', 'phone'], ['Cash', 'cash']];
+  const filtered = EXPENSES.filter(x => (!ES.method || x.method === ES.method)
+    && (!ES.q || [x.ref, x.description, x.payee, x.category, x.method, x.event?.name].some(value => value?.toLowerCase().includes(ES.q.toLowerCase()))));
   const methodTotals = Object.fromEntries(methods.map(([method]) => [
     method,
     EXPENSES.filter(expense => expense.method === method).reduce((total, expense) => total + Number(expense.amount), 0),
   ]));
+  const filteredTotal = filtered.reduce((total, expense) => total + Number(expense.amount), 0);
   return pageHeader('Expenses', 'Record and review association spending',
     `${can('expenses:write') ? `<button class="btn btn-primary" ${on('click', 'addExpense')}>${icon('plus-lg', 'me-1')} Add expense</button>` : ''}`)
     + `<div class="row row-cols-1 row-cols-sm-2 row-cols-xl-5 g-3 mb-4">
       <div class="col">${statCard('Total expenses', KM(result.total), `${EXPENSES.length} recorded`, 'wallet2', 'danger')}</div>
       ${methods.map(([method, methodIcon]) => `<div class="col">${statCard(`${method} expenses`, KM(methodTotals[method]), '', methodIcon, 'primary')}</div>`).join('')}
     </div>
-    <div class="card"><div class="table-responsive"><table class="table table-sm table-hover align-middle small mb-0">
-      <thead class="sticky-top"><tr><th>Expense</th><th>Paid to</th><th>Category</th><th>Date paid</th><th>Method</th><th class="text-end">Amount</th><th></th></tr></thead>
-      <tbody>${EXPENSES.map(x => `<tr>
+    <div class="card">${listToolbar({ filters: [['', 'All'], ...methods.map(([method]) => [method, method])], active: ES.method, filterFn: 'setEMethod', label: 'Show', q: ES.q, searchFn: 'setEQuery', placeholder: 'Search by description, payee, category or reference' })}<div class="table-responsive"><table class="table table-sm table-hover align-middle small mb-0">
+      <thead><tr><th>Expense</th><th>Paid to</th><th>Category</th><th>Date paid</th><th>Method</th><th class="text-end">Amount</th><th></th></tr></thead>
+      <tbody>${filtered.map(x => `<tr>
         <td><div class="fw-medium">${esc(x.description)}</div>${x.event ? `<div class="text-body-secondary">${icon('calendar-event', 'me-1')}${esc(x.event.name)}</div>` : ''}</td>
         <td>${esc(x.payee)}</td><td>${esc(x.category)}</td><td class="text-nowrap">${fmtDate(x.date)}</td><td>${esc(x.method)}</td>
         <td class="text-end fw-medium text-nowrap">${K(x.amount)}</td>
         <td class="text-end"><button class="btn btn-sm btn-light" title="Details" ${on('click', 'viewExpense', x.ref)}>${icon('three-dots')}</button></td>
-      </tr>`).join('') || `<tr><td colspan="7">${empty('No expenses recorded.', 'wallet2')}</td></tr>`}</tbody>
-      ${EXPENSES.length ? `<tfoot><tr class="fw-semibold"><td colspan="5">Total</td><td class="text-end text-nowrap">${K(result.total)}</td><td></td></tr></tfoot>` : ''}
+      </tr>`).join('') || `<tr><td colspan="7">${empty(ES.q || ES.method ? 'No expenses match your search or filter.' : 'No expenses recorded.', 'wallet2')}</td></tr>`}</tbody>
+      ${filtered.length ? `<tfoot><tr class="fw-semibold"><td colspan="5">Total</td><td class="text-end text-nowrap">${K(filteredTotal)}</td><td></td></tr></tfoot>` : ''}
     </table></div></div>`;
 }
 
@@ -65,4 +73,4 @@ function viewExpense(ref) {
   }), 300); });
 }
 
-expose({ addExpense, viewExpense });
+expose({ addExpense, viewExpense, setEMethod, setEQuery });
